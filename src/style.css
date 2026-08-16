@@ -1,0 +1,379 @@
+:root {
+  --ink: #041018;
+  --foam: #e7fbff;
+  --cyan: #2ee6ff;
+  --amber: #ffb020;
+  --hot: #ff3d6e;
+  --super: #ffe14a;
+  --panel: rgba(4, 14, 22, 0.72);
+  --line: rgba(46, 230, 255, 0.35);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #02080d;
+  color: var(--foam);
+  font-family: Rajdhani, sans-serif;
+}
+
+#game-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#ui-root {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+#ui-root .screen,
+#ui-root button,
+#ui-root .panel {
+  pointer-events: auto;
+}
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.screen[hidden],
+.hud[hidden],
+.debug[hidden] {
+  display: none !important;
+}
+
+.scrim {
+  background:
+    linear-gradient(180deg, rgba(2, 8, 13, 0.55), rgba(2, 8, 13, 0.72)),
+    radial-gradient(ellipse at 50% 20%, rgba(46, 230, 255, 0.12), transparent 55%);
+}
+
+.wordmark {
+  margin: 0;
+  font-family: Orbitron, sans-serif;
+  font-weight: 800;
+  font-size: clamp(42px, 9vw, 92px);
+  letter-spacing: 0.08em;
+  line-height: 0.95;
+  text-align: center;
+  color: var(--foam);
+  text-shadow:
+    0 0 18px rgba(46, 230, 255, 0.55),
+    0 6px 0 rgba(0, 0, 0, 0.35);
+}
+
+.wordmark span {
+  display: block;
+  color: var(--cyan);
+}
+
+.tagline {
+  margin: 14px 0 28px;
+  font-size: 20px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+
+.btn-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+button {
+  font-family: Orbitron, sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border: 1px solid var(--cyan);
+  background: rgba(8, 30, 40, 0.85);
+  color: var(--foam);
+  padding: 12px 22px;
+  cursor: pointer;
+  box-shadow: 0 0 16px rgba(46, 230, 255, 0.15);
+}
+
+button:hover,
+button:focus-visible {
+  background: rgba(46, 230, 255, 0.16);
+}
+
+button.primary {
+  background: #114450;
+  border-color: var(--foam);
+}
+
+button.ghost {
+  background: transparent;
+}
+
+.boat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 240px));
+  gap: 16px;
+  width: min(920px, 100%);
+}
+
+@media (max-width: 720px) {
+  .boat-grid {
+    grid-template-columns: 1fr;
+    max-width: 360px;
+  }
+}
+
+.boat-card {
+  text-align: left;
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: inherit;
+  width: 100%;
+}
+
+.boat-card.selected {
+  border-color: var(--amber);
+  box-shadow: 0 0 20px rgba(255, 176, 32, 0.25);
+}
+
+.boat-card h3 {
+  margin: 0 0 4px;
+  font-family: Orbitron, sans-serif;
+  letter-spacing: 0.08em;
+}
+
+.boat-card p {
+  margin: 0 0 12px;
+  opacity: 0.8;
+}
+
+.stat {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-top: 6px;
+}
+
+.bar {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.bar > i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan), var(--amber));
+}
+
+.hud {
+  position: absolute;
+  inset: 0;
+}
+
+.hud.boosting .meters {
+  filter: drop-shadow(0 0 10px rgba(46, 230, 255, 0.65));
+}
+
+.hud.super-on .meters {
+  filter: drop-shadow(0 0 14px rgba(255, 225, 74, 0.85));
+}
+
+.callout {
+  position: absolute;
+  left: 50%;
+  top: 28%;
+  transform: translateX(-50%);
+  font-family: Orbitron, sans-serif;
+  font-size: clamp(22px, 4vw, 40px);
+  letter-spacing: 0.14em;
+  color: var(--amber);
+  text-shadow: 0 0 18px rgba(255, 176, 32, 0.75);
+  pointer-events: none;
+}
+
+.hud-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 16px 20px;
+  gap: 12px;
+}
+
+.plate {
+  background: rgba(4, 14, 22, 0.86);
+  border: 1px solid var(--line);
+  padding: 8px 12px;
+  min-width: 92px;
+}
+
+.plate .label {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.plate .value {
+  font-family: Orbitron, sans-serif;
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.place-num {
+  color: var(--amber);
+}
+
+.meters {
+  position: absolute;
+  left: 20px;
+  bottom: 20px;
+  width: min(320px, calc(100% - 40px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.meter {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+}
+
+.meter .label {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.meter-fill {
+  margin-top: 4px;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.meter-fill > i {
+  display: block;
+  height: 100%;
+  width: 0%;
+}
+
+.meter.boost .meter-fill > i {
+  background: linear-gradient(90deg, #1477ff, var(--cyan));
+}
+
+.meter.super .meter-fill > i {
+  background: linear-gradient(90deg, #ffb020, var(--super));
+}
+
+.countdown {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: Orbitron, sans-serif;
+  font-size: clamp(64px, 14vw, 140px);
+  text-shadow: 0 0 24px rgba(255, 176, 32, 0.7);
+  pointer-events: none;
+}
+
+.help {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  width: min(280px, calc(100% - 40px));
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.help kbd {
+  font-family: Orbitron, sans-serif;
+  font-size: 11px;
+  border: 1px solid var(--line);
+  padding: 1px 5px;
+}
+
+.results {
+  width: min(520px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 22px;
+}
+
+.results h2 {
+  font-family: Orbitron, sans-serif;
+  margin: 0 0 16px;
+}
+
+.results ol {
+  margin: 0 0 20px;
+  padding: 0;
+  list-style: none;
+}
+
+.results li {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 18px;
+}
+
+.results li.player {
+  color: var(--amber);
+}
+
+.debug {
+  position: absolute;
+  left: 20px;
+  top: 92px;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 8px 10px;
+  white-space: pre;
+  pointer-events: none;
+}
+
+.pause-card {
+  width: min(460px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 24px;
+}
+
+.pause-card h2 {
+  font-family: Orbitron, sans-serif;
+  margin: 0 0 12px;
+}
+
+.pause-card p {
+  margin: 0 0 10px;
+  font-size: 17px;
+}

@@ -1,0 +1,30 @@
+export const FIXED_DT = 1 / 60;
+export const MAX_FRAME_DT = 0.05;
+
+export const GRAVITY = 36;
+export const WATER_SPRING = 52;
+export const WATER_DAMP = 11;
+
+export const BOOST_CAP = 5;
+export const BLUE_BOOST = 1.5;
+export const RED_BOOST = 3;
+export const SUPER_DURATION = 2;
+export const RAM_BOOST = 1;
+export const JUMP_COST = 0.35;
+export const JUMP_WINDOW = 0.18;
+export const JUMP_MIN_SPEED = 12;
+export const HULL_RADIUS = 2.1;
+export const RAM_SPEED_DELTA = 7;
+export const RAM_COOLDOWN = 0.6;
+export const OFFTRACK_TIME = 1.2;
+export const STALL_TIME = 1.6;
+export const RESPAWN_SPEED_FACTOR = 0.4;
+export const PICKUP_RADIUS = 3.6;
+export const CRATE_RADIUS = 3.2;
+export const MINE_RADIUS = 3.4;
+export const MINE_ARM = 0.7;
+export const CHECKPOINT_COUNT = 8;
+export const LAP_COUNT = 3;
+export const AI_COUNT = 3;
+export const RUBBER_BAND = 0.14;
+export const LATERAL_PAD = 1.15;
