@@ -11,7 +11,7 @@ import type { Boat } from "./Boat";
 import { headingVector } from "./Boat";
 import { spendBoost } from "./BoostSystem";
 import { tickJumpHold, tryHydroJump } from "./HydroJump";
-import { clamp, lerp } from "./math";
+import { clamp, lerp, wrapAngle } from "./math";
 import { queryCourse, resolveBank, respawnPose } from "./Track";
 import type { TrackWorld } from "./Track";
 import { gerstnerHeight } from "./waterHeight";
@@ -28,9 +28,9 @@ export interface ControllerResult {
 
 function steerCurve(speed: number, maxSpeed: number): number {
   const n = speed / Math.max(maxSpeed, 1);
-  if (n < 0.12) return 0.35 + n * 4;
-  if (n < 0.62) return 1;
-  return lerp(1, 0.62, (n - 0.62) / 0.38);
+  if (n < 0.12) return 0.42 + n * 4.2;
+  if (n < 0.58) return 1;
+  return lerp(1, 0.68, (n - 0.58) / 0.42);
 }
 
 export function stepBoat(
@@ -75,6 +75,12 @@ export function stepBoat(
   let maxSpeed = def.maxSpeed;
   if (spend.usingSuper) maxSpeed = def.superBoostMaxSpeed;
   else if (spend.usingBoost) maxSpeed = def.boostMaxSpeed;
+  // Cabinet kick: the instant you mash boost, the hull jumps a gear.
+  if (spend.usingBoost && boostEdge && !result.jumped) {
+    const punch = spend.usingSuper ? 11 : 7.5;
+    boat.speed = Math.min(maxSpeed, boat.speed + punch);
+    boat.camShake = Math.max(boat.camShake, spend.usingSuper ? 0.4 : 0.22);
+  }
 
   const fwd = headingVector(boat.yaw);
   const rightX = fwd.z;
@@ -84,7 +90,7 @@ export function stepBoat(
     const accel = def.accel * (spend.usingBoost ? 1.55 : 1) * (spend.usingSuper ? 1.25 : 1);
     if (boat.throttle > 0) boat.speed += accel * boat.throttle * dt;
     if (boat.brake > 0) boat.speed -= (accel * 1.35 + 18) * boat.brake * dt;
-    const drag = 0.55 + boat.speed * 0.012;
+    const drag = (spend.usingBoost ? 0.38 : 0.55) + boat.speed * (spend.usingBoost ? 0.007 : 0.012);
     boat.speed -= drag * boat.speed * dt;
     if (boat.throttle < 0.05 && boat.brake < 0.05) boat.speed -= 8 * dt;
     boat.speed = clamp(boat.speed, 0, maxSpeed);
@@ -119,10 +125,13 @@ export function stepBoat(
     boat.z = wall.z;
     boat.vx = wall.vx;
     boat.vz = wall.vz;
-    boat.speed *= 0.68;
-    boat.camShake = Math.max(boat.camShake, 0.35);
+    boat.speed = Math.hypot(wall.vx, wall.vz);
+    boat.camShake = Math.max(boat.camShake, 0.28);
     result.bankHit = true;
     if (boat.airborne && boat.vy < 0) boat.vy *= 0.2;
+    const desired = Math.atan2(q.frame.tx, q.frame.tz);
+    const err = wrapAngle(desired - boat.yaw);
+    if (Math.abs(err) > 0.7) boat.yaw += err * 0.4;
   }
 
   const wave = gerstnerHeight(boat.x, boat.z, boat.time, q.onShortcut ? 0.35 : 1);

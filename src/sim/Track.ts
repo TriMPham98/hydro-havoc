@@ -31,6 +31,8 @@ export interface Mine {
 }
 
 export interface TrackWorld {
+  id: string;
+  name: string;
   main: ArcSpline;
   shortcut: ArcSpline;
   shortcutEnterT: number;
@@ -40,6 +42,7 @@ export interface TrackWorld {
   crates: CrateSlot[];
   mines: Mine[];
   start: Frame;
+  sectors: { until: number; name: string }[];
 }
 
 export function makeTrack(mainPts: ControlPoint[], shortcutPts: ControlPoint[]): TrackWorld {
@@ -51,6 +54,8 @@ export function makeTrack(mainPts: ControlPoint[], shortcutPts: ControlPoint[]):
   const checkpoints: number[] = [];
   for (let i = 0; i < CHECKPOINT_COUNT; i++) checkpoints.push(i / CHECKPOINT_COUNT);
   return {
+    id: "course",
+    name: "Course",
     main,
     shortcut,
     shortcutEnterT: enter.frame.t,
@@ -60,6 +65,7 @@ export function makeTrack(mainPts: ControlPoint[], shortcutPts: ControlPoint[]):
     crates: [],
     mines: [],
     start: main.getFrameAtT(0),
+    sectors: [{ until: 1, name: "CANAL" }],
   };
 }
 
@@ -78,7 +84,8 @@ export function queryCourse(track: TrackWorld, x: number, y: number, z: number, 
   const cut = track.shortcut.project(x, y, z);
   const mainHalf = main.frame.width * 0.5;
   const cutHalf = cut.frame.width * 0.5;
-  const onCut = Math.abs(cut.lateral) < cutHalf + 5 && cut.planar < cutHalf + 10;
+  const heightOk = Math.abs(y - cut.frame.y) < 7;
+  const onCut = heightOk && Math.abs(cut.lateral) < cutHalf + 5 && cut.planar < cutHalf + 10;
   const preferCut = onCut && cut.planar + 1.5 < main.planar;
   const hit = preferCut ? cut : main;
   const half = preferCut ? cutHalf : mainHalf;
@@ -115,10 +122,15 @@ export function resolveBank(
   let nvx = vx;
   let nvz = vz;
   if (vn > 0) {
-    nvx -= vn * 1.35 * nx;
-    nvz -= vn * 1.35 * nz;
+    nvx -= vn * nx;
+    nvz -= vn * nz;
   }
-  return { x: pushedX, z: pushedZ, vx: nvx * 0.72, vz: nvz * 0.72, hit: true };
+  const tx = q.frame.tx;
+  const tz = q.frame.tz;
+  const along = nvx * tx + nvz * tz;
+  nvx = tx * along * 0.94;
+  nvz = tz * along * 0.94;
+  return { x: pushedX, z: pushedZ, vx: nvx, vz: nvz, hit: true };
 }
 
 export function respawnPose(track: TrackWorld, checkpoint: number): { x: number; y: number; z: number; yaw: number } {

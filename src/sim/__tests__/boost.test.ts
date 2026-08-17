@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createBoat } from "../Boat";
+import { stepBoat } from "../BoatController";
 import {
   activateSuper,
   addNormalBoost,
@@ -7,6 +8,7 @@ import {
   spendBoost,
 } from "../BoostSystem";
 import { BOOST_CAP, SUPER_DURATION } from "../constants";
+import { buildRiptideRefinery } from "../../data/tracks/riptideRefinery";
 
 describe("boost system", () => {
   it("caps normal boost", () => {
@@ -53,5 +55,24 @@ describe("boost system", () => {
     const r = spendBoost(boat, 1);
     expect(r.usingBoost).toBe(false);
     expect(boat.boostFuel).toBe(2);
+  });
+
+  it("kicks speed the frame boost is mashed", () => {
+    const track = buildRiptideRefinery();
+    const boat = createBoat("p", "skimmer", false);
+    const start = track.main.getFrameAtT(0.05);
+    boat.x = start.x;
+    boat.y = start.y + 0.8;
+    boat.z = start.z;
+    boat.yaw = Math.atan2(start.tx, start.tz);
+    boat.speed = 18;
+    boat.boostFuel = 2;
+    boat.throttle = 1;
+    boat.boostHeld = false;
+    stepBoat(boat, track, 1 / 60, 0, false);
+    const before = boat.speed;
+    boat.boostHeld = true;
+    stepBoat(boat, track, 1 / 60, 0, false);
+    expect(boat.speed).toBeGreaterThan(before + 4);
   });
 });

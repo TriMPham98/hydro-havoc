@@ -1,6 +1,7 @@
 import type { BoatId } from "../data/boats";
 import { BOATS } from "../data/boats";
-import { buildRiptideRefinery, rollCrateKinds } from "../data/tracks/riptideRefinery";
+import { buildCourse, type CourseId } from "../data/tracks/catalog";
+import { rollCrateKinds } from "../data/tracks/riptideRefinery";
 import { GameAudio } from "../audio/Audio";
 import { Input } from "../input/Input";
 import { GameRenderer } from "../render/Scene";
@@ -8,7 +9,7 @@ import { createBoat, type Boat } from "../sim/Boat";
 import { assignAIBoats, driveAI } from "../sim/AIRacer";
 import { stepBoat } from "../sim/BoatController";
 import { resetRamTable, resolveHulls } from "../sim/Collision";
-import { FIXED_DT, MAX_FRAME_DT } from "../sim/constants";
+import { AI_COUNT, FIXED_DT, MAX_FRAME_DT } from "../sim/constants";
 import { stepPickups } from "../sim/Pickups";
 import {
   countdownLabel,
@@ -37,7 +38,9 @@ export class Game {
   private time = 0;
   private last = performance.now();
   private lastCount = "";
+  private lastPlace = 1;
   private playerBoat: BoatId = "skimmer";
+  private courseId: CourseId = "riptide";
 
   constructor(canvas: HTMLCanvasElement, root: HTMLElement) {
     this.overlay = new Overlay(root);
@@ -45,7 +48,7 @@ export class Game {
     this.input = new Input();
     this.audio = new GameAudio();
     this.renderer = new GameRenderer(canvas);
-    this.track = buildRiptideRefinery();
+    this.track = buildCourse(this.courseId);
     this.renderer.loadTrack(this.track);
     this.spawnIdle();
 
@@ -88,7 +91,7 @@ export class Game {
   }
 
   private spawnIdle(): void {
-    this.track = buildRiptideRefinery();
+    this.track = buildCourse(this.courseId);
     rollCrateKinds(this.track);
     this.renderer.loadTrack(this.track);
     this.player = createBoat("player", this.playerBoat, false);
@@ -103,7 +106,7 @@ export class Game {
 
   private beginRace(): void {
     this.audio.resume();
-    this.track = buildRiptideRefinery();
+    this.track = buildCourse(this.courseId);
     rollCrateKinds(this.track);
     this.renderer.loadTrack(this.track);
     resetRamTable();
@@ -111,8 +114,8 @@ export class Game {
     const aiIds = assignAIBoats(this.playerBoat);
     const extras = BOATS.map((b) => b.id).filter((id) => id !== this.playerBoat);
     this.boats = [this.player];
-    for (let i = 0; i < 3; i++) {
-      this.boats.push(createBoat(`ai${i}`, aiIds[i] ?? extras[i % extras.length], true));
+    for (let i = 0; i < AI_COUNT; i++) {
+      this.boats.push(createBoat(`ai${i}`, aiIds[i % aiIds.length] ?? extras[i % extras.length], true));
     }
     this.boats.forEach((b, i) => {
       const pose = gridPose(this.track, i);
@@ -126,6 +129,7 @@ export class Game {
     this.mode = "race";
     this.overlay.show("hud");
     this.lastCount = "";
+    this.lastPlace = this.player.place;
   }
 
   private resume(): void {
@@ -156,7 +160,8 @@ export class Game {
         if (boat.ai) driveAI(boat, this.track, this.player, racing, this.boats);
       }
       for (const boat of this.boats) {
-        stepBoat(boat, this.track, dt, this.director.time, !racing);
+        const step = stepBoat(boat, this.track, dt, this.director.time, !racing);
+        if (boat === this.player && step.landed) this.audio.splash();
       }
       if (racing) {
         const rams = resolveHulls(this.boats, this.time);
@@ -180,7 +185,22 @@ export class Game {
         this.audio.countdown(label);
         this.lastCount = label;
       }
-      this.overlay.updateHud(this.player, this.director, this.director.phase === "countdown" ? label : null);
+      this.overlay.updateHud(
+        this.player,
+        this.director,
+        this.director.phase === "countdown" ? label : null,
+        this.boats,
+      );
+      if (racing && this.player.place !== this.lastPlace) {
+        if (this.player.place < this.lastPlace) {
+          this.overlay.flashHit("PASSED");
+          this.audio.announce();
+        } else if (this.player.place > this.lastPlace) {
+          this.overlay.flashHit("OVERTAKEN");
+          this.audio.announceDown();
+        }
+        this.lastPlace = this.player.place;
+      }
     }
 
     if (this.mode === "race" && this.director.phase === "finish") {
@@ -195,7 +215,8 @@ export class Game {
     }
 
     const boosting = this.player.boostHeld && (this.player.boostFuel > 0 || this.player.superBoostRemaining > 0);
-    this.audio.setEngine(this.player.speed, boosting);
+    const voice = this.player.def.id === "ironwake" ? 2 : this.player.def.id === "vesper" ? 1 : 0;
+    this.audio.setEngine(this.player.speed, boosting, voice);
     if (this.overlay.showDebug) {
       this.overlay.setDebug(
         `fps ${(1 / dt).toFixed(0)}  spd ${this.player.speed.toFixed(1)}  t ${this.player.courseT.toFixed(3)}\nlap ${this.player.lap} cp ${this.player.lastCheckpoint} air ${this.player.airborne ? "Y" : "n"}  boost ${this.player.boostFuel.toFixed(2)}`,

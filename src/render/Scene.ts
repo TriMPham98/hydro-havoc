@@ -15,7 +15,10 @@ export class GameRenderer {
   private boats = new Map<string, THREE.Group>();
   private fx: Fx;
   private hemi: THREE.HemisphereLight;
+  private dir: THREE.DirectionalLight;
   private trackGroup: THREE.Group | null = null;
+  private fogDay = new THREE.Color(0x143044);
+  private fogNight = new THREE.Color(0x061018);
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
@@ -31,11 +34,11 @@ export class GameRenderer {
 
     this.hemi = new THREE.HemisphereLight(0xc8e8ff, 0x3a2414, 1.15);
     this.scene.add(this.hemi);
-    const dir = new THREE.DirectionalLight(0xfff2d8, 1.85);
-    dir.position.set(-50, 90, 35);
-    dir.castShadow = true;
-    dir.shadow.mapSize.set(1024, 1024);
-    this.scene.add(dir);
+    this.dir = new THREE.DirectionalLight(0xfff2d8, 1.85);
+    this.dir.position.set(-50, 90, 35);
+    this.dir.castShadow = true;
+    this.dir.shadow.mapSize.set(1024, 1024);
+    this.scene.add(this.dir);
     const fill = new THREE.DirectionalLight(0x4ec8e0, 0.55);
     fill.position.set(40, 30, -20);
     this.scene.add(fill);
@@ -78,6 +81,16 @@ export class GameRenderer {
       }
       mesh.position.set(boat.x, boat.y, boat.z);
       mesh.rotation.set(boat.pitch, boat.yaw, boat.roll);
+      const hot = boat.boostHeld && (boat.boostFuel > 0 || boat.superBoostRemaining > 0);
+      const turbine = mesh.getObjectByName("turbine");
+      if (turbine) turbine.scale.setScalar(hot ? 1.28 : 1);
+      const glow = mesh.getObjectByName("turbineGlow") as THREE.Mesh | undefined;
+      if (glow) {
+        glow.scale.set(hot ? 1.8 : 0.4, hot ? 2.4 : 0.4, hot ? 1.8 : 0.4);
+        const gm = glow.material as THREE.MeshBasicMaterial;
+        gm.opacity = hot ? (boat.superBoostRemaining > 0 ? 0.72 : 0.48) : 0;
+        gm.color.set(boat.superBoostRemaining > 0 && hot ? 0xffe14a : 0x7af0ff);
+      }
     }
     for (const [id, mesh] of this.boats) {
       if (!seen.has(id)) {
@@ -97,8 +110,31 @@ export class GameRenderer {
     const superOn = !!player && player.superBoostRemaining > 0 && player.boostHeld;
     this.fx.update(track, boats, dt, time, boosting);
     this.syncBoats(boats);
-    if (player) this.camera.follow(player, dt, boosting, superOn);
+    if (player) {
+      this.tintWorld(player.courseT);
+      this.camera.follow(player, dt, boosting, superOn);
+    }
     this.renderer.render(this.scene, this.camera.camera);
+  }
+
+  /** Tour lighting: harbor day, mesa dusk, city night, reef dawn. */
+  private tintWorld(t: number): void {
+    const harbor = t < 0.22 || t > 0.92;
+    const mesa = t >= 0.22 && t < 0.42;
+    const city = t >= 0.42 && t < 0.68;
+    const night = city ? 1 : t > 0.38 && t < 0.74 ? 0.55 : 0;
+    const dusk = mesa ? 0.7 : 0;
+    const fog = this.fogDay.clone().lerp(this.fogNight, night);
+    if (dusk) fog.lerp(new THREE.Color(0x4a2818), dusk * 0.45);
+    if (harbor) fog.lerp(new THREE.Color(0x1a4058), 0.15);
+    this.scene.background = fog;
+    if (this.scene.fog instanceof THREE.FogExp2) {
+      this.scene.fog.color.copy(fog);
+      this.scene.fog.density = 0.0024 + night * 0.004 + dusk * 0.0012;
+    }
+    this.hemi.intensity = 1.15 - night * 0.5 + (harbor ? 0.08 : 0);
+    this.dir.intensity = 1.85 - night * 1.1 + dusk * 0.15;
+    this.dir.color.setHex(night > 0.5 ? 0x6aa8c8 : dusk > 0.4 ? 0xffb070 : 0xfff2d8);
   }
 
   resize(): void {

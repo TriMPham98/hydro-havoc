@@ -1,4 +1,5 @@
 import { BOATS, statBars, type BoatId } from "../data/boats";
+import type { CourseId } from "../data/tracks/catalog";
 import type { Boat } from "../sim/Boat";
 import { BOOST_CAP, LAP_COUNT } from "../sim/constants";
 import { formatTime, type RaceDirector } from "../sim/RaceDirector";
@@ -15,20 +16,24 @@ export class Overlay {
   private debug!: HTMLElement;
   private countdown!: HTMLElement;
   private callout!: HTMLElement;
+  private pack!: HTMLElement;
   private calloutUntil = 0;
   private pos!: HTMLElement;
   private lap!: HTMLElement;
   private clock!: HTMLElement;
   private speed!: HTMLElement;
+  private sector!: HTMLElement;
   private boostFill!: HTMLElement;
   private superFill!: HTMLElement;
   private onStart?: () => void;
   private onSelect?: (id: BoatId) => void;
+
   private onRace?: () => void;
   private onRetry?: () => void;
   private onMenu?: () => void;
   private onResume?: () => void;
   selected: BoatId = "skimmer";
+  course: CourseId = "riptide";
   showDebug = false;
 
   constructor(root: HTMLElement) {
@@ -43,7 +48,7 @@ export class Overlay {
       </section>
       <section class="screen scrim" id="select" hidden>
         <h2 class="wordmark" style="font-size:42px">Choose Hull</h2>
-        <p class="tagline">Three boats. One canal.</p>
+        <p class="tagline">One canal. Three hulls.</p>
         <div class="boat-grid" id="boat-grid"></div>
         <div class="btn-row" style="margin-top:22px">
           <button class="primary" id="select-go">Launch</button>
@@ -55,6 +60,7 @@ export class Overlay {
           <div class="plate"><div class="label">Lap</div><div class="value" id="hud-lap">1/${LAP_COUNT}</div></div>
           <div class="plate"><div class="label">Time</div><div class="value" id="hud-clock">0:00.00</div></div>
           <div class="plate"><div class="label">Knots</div><div class="value" id="hud-speed">00</div></div>
+          <div class="plate"><div class="label">Sector</div><div class="value" id="hud-sector">HARBOR</div></div>
         </div>
         <div class="meters">
           <div class="meter boost"><div class="label">Boost</div><div class="meter-fill"><i id="boost-fill"></i></div></div>
@@ -66,6 +72,7 @@ export class Overlay {
         </div>
         <div class="countdown" id="countdown"></div>
         <div class="callout" id="callout"></div>
+        <ol class="pack" id="pack"></ol>
       </div>
       <section class="screen scrim" id="pause" hidden>
         <div class="pause-card">
@@ -99,10 +106,12 @@ export class Overlay {
     this.debug = this.el("#debug");
     this.countdown = this.el("#countdown");
     this.callout = this.el("#callout");
+    this.pack = this.el("#pack");
     this.pos = this.el("#hud-pos");
     this.lap = this.el("#hud-lap");
     this.clock = this.el("#hud-clock");
     this.speed = this.el("#hud-speed");
+    this.sector = this.el("#hud-sector");
     this.boostFill = this.el("#boost-fill");
     this.superFill = this.el("#super-fill");
 
@@ -144,17 +153,25 @@ export class Overlay {
     this.renderBoatCards();
   }
 
-  updateHud(player: Boat, dir: RaceDirector, label: string | null): void {
+  updateHud(player: Boat, dir: RaceDirector, label: string | null, field: Boat[] = []): void {
     this.pos.textContent = String(player.place);
     this.lap.textContent = `${Math.min(player.lap + 1, LAP_COUNT)}/${LAP_COUNT}`;
     this.clock.textContent = formatTime(dir.time);
     this.speed.textContent = String(Math.round(player.speed * 2.4)).padStart(2, "0");
+    this.sector.textContent = sectorName(player.courseT, this.course);
     this.boostFill.style.width = `${(player.boostFuel / BOOST_CAP) * 100}%`;
     this.superFill.style.width = `${(player.superBoostRemaining / 2) * 100}%`;
     const hot = player.boostHeld && (player.boostFuel > 0 || player.superBoostRemaining > 0);
     this.hud.classList.toggle("boosting", hot);
     this.hud.classList.toggle("super-on", player.superBoostRemaining > 0 && player.boostHeld);
     this.countdown.textContent = label ?? "";
+    if (field.length) {
+      this.pack.innerHTML = field
+        .slice()
+        .sort((a, b) => a.place - b.place)
+        .map((b) => `<li class="${b.ai ? "" : "you"}">${b.place} ${b.def.name}</li>`)
+        .join("");
+    }
     if (this.calloutUntil && performance.now() > this.calloutUntil) {
       this.callout.textContent = "";
       this.calloutUntil = 0;
@@ -214,4 +231,11 @@ export class Overlay {
     if (!(node instanceof HTMLElement)) throw new Error(sel);
     return node;
   }
+}
+
+function sectorName(t: number, _course: CourseId): string {
+  if (t < 0.22 || t > 0.92) return "HARBOR";
+  if (t < 0.42) return "MESA";
+  if (t < 0.68) return "NEON";
+  return "REEF";
 }

@@ -52,6 +52,38 @@ describe("track", () => {
     }
     expect(clashes).toEqual([]);
   });
+
+  it("spans a world-tour footprint, not a pocket canal", () => {
+    const track = buildRiptideRefinery();
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (let i = 0; i < 32; i++) {
+      const f = track.main.getFrameAtT(i / 32);
+      minX = Math.min(minX, f.x);
+      maxX = Math.max(maxX, f.x);
+      minZ = Math.min(minZ, f.z);
+      maxZ = Math.max(maxZ, f.z);
+    }
+    expect(maxX - minX).toBeGreaterThan(700);
+    expect(maxZ - minZ).toBeGreaterThan(900);
+    expect(track.main.totalLength).toBeGreaterThan(2200);
+  });
+
+  it("keeps the main canal at least 20m wide", () => {
+    const track = buildRiptideRefinery();
+    for (let i = 0; i < 40; i++) {
+      expect(track.main.getFrameAtT(i / 40).width).toBeGreaterThanOrEqual(20);
+    }
+  });
+
+  it("does not snap a surface boat onto the elevated shortcut", () => {
+    const track = buildRiptideRefinery();
+    const mid = track.shortcut.getFrameAtT(0.5);
+    const q = queryCourse(track, mid.x, 0.8, mid.z, 0.3);
+    expect(q.onShortcut).toBe(false);
+  });
 });
 
 describe("mighty hull", () => {

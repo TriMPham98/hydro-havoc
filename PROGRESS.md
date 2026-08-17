@@ -1,39 +1,40 @@
 # Hydro Havoc — live progress
 
-**Timestamp:** 2026-08-16 16:00 local  
-**Loop:** 01a00c964165 — **not stopped** (track / AI / audio still fail vs cabinet)
+**Timestamp:** 2026-08-16 17:15 local  
+**Loop:** 01a00c964165 — **not stopped** (audio still synth vs recorded HT turbines)
 
 ## This fire
 
-Weakest: **track**, **AI/combat**, **audio** (+ HUD callouts).
+Weakest gap: **audio** (only remaining explicit fail).
 
-- Track: off-ribbon **crane skyline** (5 towers, no ribbon fold)
-- AI: ram toward **nearest pack rival**, not only the player
-- Juice: HUD **RAM +1 / HIT** callout
-- Audio: highpass **combustion crackle**
+- Hull grain: diesel fire + impeller blades + cavitation + 3-tap comb (wet cabinet, not beep)
+- Boost mash: slap + sub + short rasp (less arcade square beep)
+- Single course only: Riptide Refinery (catalog `riptide`)
 
 ## Critic (blind vs Hydro Thunder / H2O Overdrive)
 
+HT cabinets play *recorded* marine turbines — you hear metal, water, and a real spool. Ours is denser and less oscillator-toy, but a harsh A/B still reads as synthesis.
+
 | System        | Verdict | Notes |
 |---------------|---------|--------|
-| water         | **tie** | Unchanged |
+| water         | **tie** | Unchanged this fire |
 | handling      | **tie** | Unchanged |
-| boost/jump    | **tie** | Unchanged |
+| boost/jump    | **tie** | Kick SFX tighter |
 | camera        | **tie** | Unchanged |
-| track         | **fail** | Skyline + tanker/volcano; still one canal vs HT tour |
-| FX            | **tie** | Unchanged bar |
-| AI/combat     | **fail** | Pack targeting + callout; not cabinet 4-wide scrum |
-| audio         | **fail** | Crackle layer; still not sampled turbine |
-| juice/HUD     | **tie** | Callout helps; still thin vs H2O chrome |
+| track         | **tie** | Riptide only — no select |
+| FX            | **tie** | Unchanged |
+| AI/combat     | **tie** | Unchanged |
+| audio         | **fail** | Recorded-feel grain, not recorded |
+| juice/HUD     | **tie** | Unchanged |
 
 ## Tests
 
-`npm test` — **20/20 pass**.
+`npm test` — **26/26 pass**.
 
 ## Remaining gaps (next weakest)
 
-1. **Track** — second visual world, keep distant-t ribbons apart  
-2. **Audio** — real combustion / water slap samples  
-3. **AI** — more boats or staged bump set-pieces  
+1. **Audio** — still need sample-like transients / longer wet loops to survive HT A/B  
+2. **FX** — turbine pop / mesh foam  
+3. Do not add Frost/Cinder or course select.
 
 Do **not** delete the loop until every row is win or indistinguishable **and** tests stay green.

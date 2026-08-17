@@ -77,8 +77,8 @@ export function createWaterMaterial(): THREE.ShaderMaterial {
         vec3 env = mix(vec3(0.06, 0.18, 0.22), uSky, skyH);
         env = mix(env, vec3(1.0, 0.86, 0.62), pow(max(0.0, dot(normalize(r), uSunDir)), 18.0));
         water = mix(water, env, fresnel * 0.88);
-        float spec = pow(max(0.0, dot(reflect(-uSunDir, n), view)), 140.0);
-        water += vec3(1.0, 0.97, 0.88) * spec * 1.15;
+        float spec = pow(max(0.0, dot(reflect(-uSunDir, n), view)), 110.0);
+        water += vec3(1.0, 0.97, 0.88) * spec * 1.45;
         float spark = fract(sin(dot(vWorld.xz, vec2(12.9898, 78.233))) * 43758.5453);
         water += vec3(0.7, 0.88, 0.95) * step(0.988, spark) * (0.35 + fresnel);
         float foam = smoothstep(0.06, 0.28, vCrest);

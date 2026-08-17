@@ -44,7 +44,16 @@ export function createBoatMesh(def: BoatDef): THREE.Group {
   const engine = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.36, 1.1, 8), accentMat);
   engine.rotation.x = Math.PI / 2;
   engine.position.set(0, 0.55, -def.hullLength * 0.48);
+  engine.name = "turbine";
   g.add(engine);
+  const glow = new THREE.Mesh(
+    new THREE.ConeGeometry(0.22, 1.4, 8),
+    new THREE.MeshBasicMaterial({ color: def.accent, transparent: true, opacity: 0.0 }),
+  );
+  glow.rotation.x = Math.PI / 2;
+  glow.position.set(0, 0.55, -def.hullLength * 0.62);
+  glow.name = "turbineGlow";
+  g.add(glow);
 
   for (const x of [-def.hullWidth * 0.38, def.hullWidth * 0.38]) {
     const intake = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.22, 1.2), cabinMat);

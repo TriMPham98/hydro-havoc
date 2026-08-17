@@ -19,7 +19,7 @@ export class Fx {
 
   constructor(hemi: THREE.HemisphereLight) {
     this.hemi = hemi;
-    const count = 900;
+    const count = 1600;
     const geo = new THREE.BufferGeometry();
     const pos = new Float32Array(count * 3);
     this.sprayVel = new Float32Array(count * 3);
@@ -28,7 +28,7 @@ export class Fx {
       geo,
       new THREE.PointsMaterial({
         color: 0xd8fbff,
-        size: 0.58,
+        size: 0.72,
         transparent: true,
         opacity: 0.78,
         depthWrite: false,
@@ -119,26 +119,29 @@ export class Fx {
     });
 
     const pos = this.spray.geometry.getAttribute("position") as THREE.BufferAttribute;
-    const player = boats.find((b) => !b.ai) ?? boats[0];
-    if (player) {
-      const fwd = headingVector(player.yaw);
+    const emitters = boats.filter((b) => b.onWater && b.speed > 4);
+    const host = boats.find((b) => !b.ai) ?? boats[0];
+    if (host && emitters.length) {
       for (let i = 0; i < pos.count; i++) {
         let y = pos.getY(i);
         y += this.sprayVel[i * 3 + 1] * dt;
-        this.sprayVel[i * 3 + 1] -= 18 * dt;
-        if (y < player.y - 0.55 || Math.random() < 0.05) {
+        this.sprayVel[i * 3 + 1] -= 22 * dt;
+        if (y < host.y - 1.2 || Math.random() < 0.07) {
+          const boat = emitters[i % emitters.length];
+          const fwd = headingVector(boat.yaw);
           const side = Math.random() < 0.5 ? -1 : 1;
-          const lat = 1.05 + Math.random() * 1.6;
+          const lat = 1.15 + Math.random() * 2.1;
+          const boostKick = boat.boostHeld ? 9 : 0;
           pos.setXYZ(
             i,
-            player.x + fwd.z * side * lat - fwd.x * (1.1 + Math.random() * 1.8),
-            player.y + 0.15,
-            player.z - fwd.x * side * lat - fwd.z * (1.1 + Math.random() * 1.8),
+            boat.x + fwd.z * side * lat - fwd.x * (1.2 + Math.random() * 2.4),
+            boat.y + 0.2,
+            boat.z - fwd.x * side * lat - fwd.z * (1.2 + Math.random() * 2.4),
           );
-          const kick = 7.2 + Math.random() * 10 + player.speed * 0.12 + (boosting ? 6 : 0);
-          this.sprayVel[i * 3] = fwd.z * side * (3 + Math.random() * 7) - fwd.x * (2 + player.speed * 0.12);
+          const kick = 8.4 + Math.random() * 12 + boat.speed * 0.16 + boostKick;
+          this.sprayVel[i * 3] = fwd.z * side * (4 + Math.random() * 8) - fwd.x * (2 + boat.speed * 0.16);
           this.sprayVel[i * 3 + 1] = kick;
-          this.sprayVel[i * 3 + 2] = -fwd.x * side * (3 + Math.random() * 7) - fwd.z * (2 + player.speed * 0.12);
+          this.sprayVel[i * 3 + 2] = -fwd.x * side * (4 + Math.random() * 8) - fwd.z * (2 + boat.speed * 0.16);
         } else {
           pos.setY(i, y);
           pos.setX(i, pos.getX(i) + this.sprayVel[i * 3] * dt);
@@ -146,9 +149,9 @@ export class Fx {
         }
       }
       pos.needsUpdate = true;
-      const sprayAmt = player.onWater ? Math.min(0.92, 0.18 + player.speed / 22) : 0.04;
+      const sprayAmt = host.onWater ? Math.min(0.95, 0.22 + host.speed / 20) : 0.05;
       (this.spray.material as THREE.PointsMaterial).opacity = sprayAmt;
-      (this.spray.material as THREE.PointsMaterial).size = boosting ? 0.78 : 0.56;
+      (this.spray.material as THREE.PointsMaterial).size = boosting ? 0.92 : 0.68;
     }
 
     for (const boat of boats) {
@@ -165,7 +168,7 @@ export class Fx {
       let wake = this.wakes.get(boat.id);
       if (!wake) {
         wake = new THREE.Mesh(
-          new THREE.PlaneGeometry(5.4, 16, 1, 1),
+          new THREE.PlaneGeometry(7.2, 22, 1, 1),
           new THREE.MeshBasicMaterial({
             color: 0xe8ffff,
             transparent: true,
@@ -182,7 +185,7 @@ export class Fx {
       if (!roost) {
         const mk = () =>
           new THREE.Mesh(
-            new THREE.PlaneGeometry(2.4, 5.2, 1, 1),
+            new THREE.PlaneGeometry(3.1, 7.4, 1, 1),
             new THREE.MeshBasicMaterial({
               color: 0xf4ffff,
               transparent: true,
@@ -205,18 +208,18 @@ export class Fx {
       ] as const) {
         mesh.visible = sprayH > 0.12;
         mesh.position.set(
-          boat.x + rightX * side * 1.35 - fwd.x * 1.4,
-          boat.y + 1.1 + sprayH * 0.8 + (boosting ? 0.4 : 0),
-          boat.z + rightZ * side * 1.35 - fwd.z * 1.4,
+          boat.x + rightX * side * 1.55 - fwd.x * 1.6,
+          boat.y + 1.25 + sprayH * 1.1 + (boosting ? 0.55 : 0),
+          boat.z + rightZ * side * 1.55 - fwd.z * 1.6,
         );
-        mesh.rotation.set(0.35, boat.yaw, side * 0.55);
-        mesh.scale.set(1 + sprayH * 0.4, 0.55 + sprayH * 1.1 + (boosting ? 0.35 : 0), 1);
-        (mesh.material as THREE.MeshBasicMaterial).opacity = 0.18 + sprayH * 0.45;
+        mesh.rotation.set(0.4, boat.yaw, side * 0.62);
+        mesh.scale.set(1.1 + sprayH * 0.55, 0.7 + sprayH * 1.35 + (boosting ? 0.5 : 0), 1);
+        (mesh.material as THREE.MeshBasicMaterial).opacity = 0.22 + sprayH * 0.5;
       }
-      wake.visible = boat.onWater && boat.speed > 6;
-      wake.position.set(boat.x - fwd.x * 8.2, boat.y - 0.32, boat.z - fwd.z * 8.2);
+      wake.visible = boat.onWater && boat.speed > 5;
+      wake.position.set(boat.x - fwd.x * 11, boat.y - 0.3, boat.z - fwd.z * 11);
       wake.rotation.z = -boat.yaw;
-      (wake.material as THREE.MeshBasicMaterial).opacity = Math.min(0.58, boat.speed / 42);
+      (wake.material as THREE.MeshBasicMaterial).opacity = Math.min(0.66, boat.speed / 36);
       trail.visible = boat.boostHeld && (boat.boostFuel > 0 || boat.superBoostRemaining > 0);
       const superOn = boat.superBoostRemaining > 0 && boat.boostHeld;
       (trail.material as THREE.MeshBasicMaterial).color.set(superOn ? 0xffe14a : 0x7af0ff);

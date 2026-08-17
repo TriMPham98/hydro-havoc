@@ -20,8 +20,8 @@ export class CameraRig {
 
   follow(boat: Boat, dt: number, boosting: boolean, superBoost: boolean): void {
     const fwd = headingVector(boat.yaw);
-    const back = 14.2 + boat.speed * 0.09 + (superBoost ? 2.4 : boosting ? 1.2 : 0);
-    const height = 6.9 + boat.speed * 0.045 + (boat.airborne ? 1.1 : 0);
+    const back = 13.4 + boat.speed * 0.11 + (superBoost ? 3.2 : boosting ? 1.8 : 0);
+    const height = 6.4 + boat.speed * 0.05 + (boat.airborne ? 1.4 : 0);
     this.desired.set(boat.x - fwd.x * back, boat.y + height, boat.z - fwd.z * back);
     const k = 1 - Math.pow(0.0008, dt);
     this.camera.position.lerp(this.desired, k);
@@ -31,8 +31,9 @@ export class CameraRig {
     }
     this.look.set(boat.x + fwd.x * 16, boat.y + 1.15 + boat.speed * 0.02, boat.z + fwd.z * 16);
     this.camera.lookAt(this.look);
-    const targetFov = superBoost ? 78 : boosting ? 70 : 62;
-    this.camera.fov = lerp(this.camera.fov, targetFov, 1 - Math.pow(0.01, dt));
+    const targetFov = superBoost ? 84 : boosting ? 74 : 61;
+    this.camera.fov = lerp(this.camera.fov, targetFov, 1 - Math.pow(0.008, dt));
+    this.camera.rotateZ(-boat.steer * (boosting ? 0.07 : 0.035));
     this.camera.updateProjectionMatrix();
   }
 }
