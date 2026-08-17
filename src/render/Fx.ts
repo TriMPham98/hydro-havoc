@@ -3,13 +3,57 @@ import type { Boat } from "../sim/Boat";
 import { headingVector } from "../sim/Boat";
 import type { TrackWorld } from "../sim/Track";
 
+function discMaterial(color: number, size: number, opacity: number): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      uColor: { value: new THREE.Color(color) },
+      uSize: { value: size },
+      uOpacity: { value: opacity },
+    },
+    vertexShader: `
+      uniform float uSize;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = uSize * (90.0 / max(1.0, -mv.z));
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      void main() {
+        vec2 p = gl_PointCoord - vec2(0.5);
+        float d = length(p);
+        if (d > 0.5) discard;
+        float a = smoothstep(0.5, 0.08, d) * uOpacity;
+        gl_FragColor = vec4(uColor, a);
+      }
+    `,
+  });
+}
+
+function makeCloud(count: number, mat: THREE.ShaderMaterial): { pts: THREE.Points; vel: Float32Array } {
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(count * 3);
+  const vel = new Float32Array(count * 3);
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  return { pts: new THREE.Points(geo, mat), vel };
+}
+
 export class Fx {
   readonly group = new THREE.Group();
   private spray: THREE.Points;
+  private sprayMat: THREE.ShaderMaterial;
   private sprayVel: Float32Array;
-  private trails = new Map<string, THREE.Mesh>();
-  private wakes = new Map<string, THREE.Mesh>();
-  private roosters = new Map<string, { l: THREE.Mesh; r: THREE.Mesh }>();
+  private mist: THREE.Points;
+  private mistMat: THREE.ShaderMaterial;
+  private mistVel: Float32Array;
+  private trail: THREE.Points;
+  private trailMat: THREE.ShaderMaterial;
+  private trailVel: Float32Array;
   private pickups = new THREE.Group();
   private crates = new THREE.Group();
   private mines = new THREE.Group();
@@ -19,23 +63,19 @@ export class Fx {
 
   constructor(hemi: THREE.HemisphereLight) {
     this.hemi = hemi;
-    const count = 1600;
-    const geo = new THREE.BufferGeometry();
-    const pos = new Float32Array(count * 3);
-    this.sprayVel = new Float32Array(count * 3);
-    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    this.spray = new THREE.Points(
-      geo,
-      new THREE.PointsMaterial({
-        color: 0xd8fbff,
-        size: 0.72,
-        transparent: true,
-        opacity: 0.78,
-        depthWrite: false,
-        sizeAttenuation: true,
-      }),
-    );
-    this.group.add(this.spray);
+    this.sprayMat = discMaterial(0xd8f6ff, 18, 0.55);
+    this.mistMat = discMaterial(0xa8d8e8, 42, 0.18);
+    this.trailMat = discMaterial(0x6ef0ff, 14, 0.7);
+    const spray = makeCloud(2400, this.sprayMat);
+    const mist = makeCloud(900, this.mistMat);
+    const trail = makeCloud(700, this.trailMat);
+    this.spray = spray.pts;
+    this.sprayVel = spray.vel;
+    this.mist = mist.pts;
+    this.mistVel = mist.vel;
+    this.trail = trail.pts;
+    this.trailVel = trail.vel;
+    this.group.add(this.spray, this.mist, this.trail);
     this.group.add(this.pickups);
     this.group.add(this.crates);
     this.group.add(this.mines);
@@ -72,6 +112,48 @@ export class Fx {
       mesh.userData.id = c.id;
       this.crates.add(mesh);
     }
+  }
+
+  private stepCloud(
+    pts: THREE.Points,
+    vel: Float32Array,
+    emitters: Boat[],
+    host: Boat,
+    dt: number,
+    kickScale: number,
+    recycle: number,
+    aftPad = 0,
+  ): void {
+    if (!emitters.length) return;
+    const pos = pts.geometry.getAttribute("position") as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++) {
+      let y = pos.getY(i);
+      y += vel[i * 3 + 1] * dt;
+      vel[i * 3 + 1] -= 22 * dt * kickScale;
+      if (y < host.y - 1.2 || Math.random() < recycle) {
+        const boat = emitters[i % emitters.length];
+        const fwd = headingVector(boat.yaw);
+        const side = Math.random() < 0.5 ? -1 : 1;
+        const lat = 1.15 + Math.random() * 2.1;
+        const boostKick = boat.boostHeld ? 9 : 0;
+        const aft = 0.6 + Math.random() * 2.8 + aftPad;
+        pos.setXYZ(
+          i,
+          boat.x + fwd.z * side * lat - fwd.x * aft,
+          boat.y + 0.08 + Math.random() * 0.35,
+          boat.z - fwd.x * side * lat - fwd.z * aft,
+        );
+        const kick = (5.4 + Math.random() * 8 + boat.speed * 0.12 + boostKick * 0.55) * kickScale;
+        vel[i * 3] = fwd.z * side * (1.6 + Math.random() * 3.2) - fwd.x * (3 + boat.speed * 0.22);
+        vel[i * 3 + 1] = kick;
+        vel[i * 3 + 2] = -fwd.x * side * (1.6 + Math.random() * 3.2) - fwd.z * (3 + boat.speed * 0.22);
+      } else {
+        pos.setY(i, y);
+        pos.setX(i, pos.getX(i) + vel[i * 3] * dt);
+        pos.setZ(i, pos.getZ(i) + vel[i * 3 + 2] * dt);
+      }
+    }
+    pos.needsUpdate = true;
   }
 
   flash(): void {
@@ -118,113 +200,16 @@ export class Fx {
       mat.emissive.setHex(mine.age > 0.7 ? 0xff2a2a : 0x331100);
     });
 
-    const pos = this.spray.geometry.getAttribute("position") as THREE.BufferAttribute;
     const emitters = boats.filter((b) => b.onWater && b.speed > 4);
     const host = boats.find((b) => !b.ai) ?? boats[0];
     if (host && emitters.length) {
-      for (let i = 0; i < pos.count; i++) {
-        let y = pos.getY(i);
-        y += this.sprayVel[i * 3 + 1] * dt;
-        this.sprayVel[i * 3 + 1] -= 22 * dt;
-        if (y < host.y - 1.2 || Math.random() < 0.07) {
-          const boat = emitters[i % emitters.length];
-          const fwd = headingVector(boat.yaw);
-          const side = Math.random() < 0.5 ? -1 : 1;
-          const lat = 1.15 + Math.random() * 2.1;
-          const boostKick = boat.boostHeld ? 9 : 0;
-          pos.setXYZ(
-            i,
-            boat.x + fwd.z * side * lat - fwd.x * (1.2 + Math.random() * 2.4),
-            boat.y + 0.2,
-            boat.z - fwd.x * side * lat - fwd.z * (1.2 + Math.random() * 2.4),
-          );
-          const kick = 8.4 + Math.random() * 12 + boat.speed * 0.16 + boostKick;
-          this.sprayVel[i * 3] = fwd.z * side * (4 + Math.random() * 8) - fwd.x * (2 + boat.speed * 0.16);
-          this.sprayVel[i * 3 + 1] = kick;
-          this.sprayVel[i * 3 + 2] = -fwd.x * side * (4 + Math.random() * 8) - fwd.z * (2 + boat.speed * 0.16);
-        } else {
-          pos.setY(i, y);
-          pos.setX(i, pos.getX(i) + this.sprayVel[i * 3] * dt);
-          pos.setZ(i, pos.getZ(i) + this.sprayVel[i * 3 + 2] * dt);
-        }
-      }
-      pos.needsUpdate = true;
-      const sprayAmt = host.onWater ? Math.min(0.95, 0.22 + host.speed / 20) : 0.05;
-      (this.spray.material as THREE.PointsMaterial).opacity = sprayAmt;
-      (this.spray.material as THREE.PointsMaterial).size = boosting ? 0.92 : 0.68;
-    }
-
-    for (const boat of boats) {
-      let trail = this.trails.get(boat.id);
-      if (!trail) {
-        trail = new THREE.Mesh(
-          new THREE.ConeGeometry(0.35, 4.2, 6),
-          new THREE.MeshBasicMaterial({ color: 0x7af0ff, transparent: true, opacity: 0.55 }),
-        );
-        trail.rotation.x = Math.PI / 2;
-        this.group.add(trail);
-        this.trails.set(boat.id, trail);
-      }
-      let wake = this.wakes.get(boat.id);
-      if (!wake) {
-        wake = new THREE.Mesh(
-          new THREE.PlaneGeometry(7.2, 22, 1, 1),
-          new THREE.MeshBasicMaterial({
-            color: 0xe8ffff,
-            transparent: true,
-            opacity: 0.38,
-            depthWrite: false,
-            side: THREE.DoubleSide,
-          }),
-        );
-        wake.rotation.x = -Math.PI / 2;
-        this.group.add(wake);
-        this.wakes.set(boat.id, wake);
-      }
-      let roost = this.roosters.get(boat.id);
-      if (!roost) {
-        const mk = () =>
-          new THREE.Mesh(
-            new THREE.PlaneGeometry(3.1, 7.4, 1, 1),
-            new THREE.MeshBasicMaterial({
-              color: 0xf4ffff,
-              transparent: true,
-              opacity: 0.42,
-              depthWrite: false,
-              side: THREE.DoubleSide,
-            }),
-          );
-        roost = { l: mk(), r: mk() };
-        this.group.add(roost.l, roost.r);
-        this.roosters.set(boat.id, roost);
-      }
-      const fwd = headingVector(boat.yaw);
-      const rightX = fwd.z;
-      const rightZ = -fwd.x;
-      const sprayH = boat.onWater ? Math.min(1, boat.speed / 18) : 0;
-      for (const [mesh, side] of [
-        [roost.l, -1],
-        [roost.r, 1],
-      ] as const) {
-        mesh.visible = sprayH > 0.12;
-        mesh.position.set(
-          boat.x + rightX * side * 1.55 - fwd.x * 1.6,
-          boat.y + 1.25 + sprayH * 1.1 + (boosting ? 0.55 : 0),
-          boat.z + rightZ * side * 1.55 - fwd.z * 1.6,
-        );
-        mesh.rotation.set(0.4, boat.yaw, side * 0.62);
-        mesh.scale.set(1.1 + sprayH * 0.55, 0.7 + sprayH * 1.35 + (boosting ? 0.5 : 0), 1);
-        (mesh.material as THREE.MeshBasicMaterial).opacity = 0.22 + sprayH * 0.5;
-      }
-      wake.visible = boat.onWater && boat.speed > 5;
-      wake.position.set(boat.x - fwd.x * 11, boat.y - 0.3, boat.z - fwd.z * 11);
-      wake.rotation.z = -boat.yaw;
-      (wake.material as THREE.MeshBasicMaterial).opacity = Math.min(0.66, boat.speed / 36);
-      trail.visible = boat.boostHeld && (boat.boostFuel > 0 || boat.superBoostRemaining > 0);
-      const superOn = boat.superBoostRemaining > 0 && boat.boostHeld;
-      (trail.material as THREE.MeshBasicMaterial).color.set(superOn ? 0xffe14a : 0x7af0ff);
-      trail.position.set(boat.x - fwd.x * 3.2, boat.y + 0.4, boat.z - fwd.z * 3.2);
-      trail.rotation.y = boat.yaw;
+      this.stepCloud(this.spray, this.sprayVel, emitters, host, dt, 1, 0.07);
+      this.stepCloud(this.mist, this.mistVel, emitters, host, dt, 0.45, 0.04, 2.4);
+      this.stepCloud(this.trail, this.trailVel, emitters.filter((b) => b.boostHeld), host, dt, 0.35, 0.12, 0.4);
+      this.sprayMat.uniforms.uOpacity.value = host.onWater ? Math.min(0.62, 0.16 + host.speed / 48) : 0.03;
+      this.sprayMat.uniforms.uSize.value = boosting ? 22 : 16;
+      this.mistMat.uniforms.uOpacity.value = host.onWater ? 0.14 + host.speed / 220 : 0.02;
+      this.trailMat.uniforms.uOpacity.value = boosting ? 0.72 : 0.08;
     }
 
     if (this.lightning > 0) {

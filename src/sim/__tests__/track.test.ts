@@ -98,12 +98,54 @@ describe("mighty hull", () => {
     a.speed = 30;
     b.speed = 10;
     a.vx = 20;
+    a.yaw = Math.PI / 2;
+    a.boostHeld = true;
+    a.boostFuel = 1;
     const events = resolveHulls([a, b], 1);
     expect(events.some((e) => e.awarded)).toBe(true);
     expect(a.boostFuel).toBeGreaterThan(0);
   });
 
+  it("does not ram unless the attacker is boosting", () => {
+    resetRamTable();
+    const a = createBoat("a", "ironwake", false);
+    const b = createBoat("b", "skimmer", true);
+    a.x = 0;
+    a.z = 0;
+    a.yaw = Math.PI / 2;
+    a.speed = 30;
+    a.vx = 20;
+    a.boostHeld = false;
+    a.boostFuel = 3;
+    b.x = 1;
+    b.z = 0;
+    b.speed = 10;
+    expect(resolveHulls([a, b], 1).some((e) => e.awarded)).toBe(false);
+  });
+
   it("stable pair keys", () => {
     expect(pairKey("a", "b")).toBe(pairKey("b", "a"));
+  });
+
+  it("lets two close boats keep forward speed", () => {
+    resetRamTable();
+    const a = createBoat("a", "skimmer", false);
+    const b = createBoat("b", "vesper", true);
+    a.x = 0;
+    a.z = 0;
+    a.yaw = 0;
+    a.speed = 28;
+    a.vx = 0;
+    a.vz = 28;
+    b.x = 0.4;
+    b.z = 0.2;
+    b.yaw = 0;
+    b.speed = 27;
+    b.vx = 0;
+    b.vz = 27;
+    resolveHulls([a, b], 1);
+    expect(a.speed).toBeGreaterThan(20);
+    expect(b.speed).toBeGreaterThan(18);
+    expect(Math.abs(a.x - b.x)).toBeGreaterThan(0.5);
   });
 });

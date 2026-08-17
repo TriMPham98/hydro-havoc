@@ -128,16 +128,17 @@ export function createTrackGroup(track: TrackWorld): {
   const gate = new THREE.Group();
   const postGeo = new THREE.BoxGeometry(1.1, 14, 1.1);
   const postMat = new THREE.MeshStandardMaterial({ color: 0x1a1f24, metalness: 0.4, roughness: 0.45 });
+  const gateSpan = start.width * 0.5 + 4;
   for (const side of [-1, 1]) {
     const post = new THREE.Mesh(postGeo, postMat);
-    post.position.set(start.x + start.rx * 12 * side, start.y + 7, start.z + start.rz * 12 * side);
+    post.position.set(start.x + start.rx * gateSpan * side, start.y + 7, start.z + start.rz * gateSpan * side);
     gate.add(post);
   }
   const beam = new THREE.Mesh(
-    new THREE.BoxGeometry(26, 1.2, 1.2),
+    new THREE.BoxGeometry(gateSpan * 2 + 2, 1.2, 1.2),
     new THREE.MeshStandardMaterial({ color: 0x0b2c34, emissive: 0x0a3a44 }),
   );
-  beam.position.set(start.x, start.y + 13.2, start.z);
+  beam.position.set(start.x, start.y + 15.4, start.z);
   beam.rotation.y = Math.atan2(start.tx, start.tz);
   gate.add(beam);
   group.add(gate);
@@ -153,6 +154,7 @@ export function createTrackGroup(track: TrackWorld): {
   dressCampus(group);
   dressTourBiomes(group, track);
   dressHorizon(group);
+  dressRefineryFill(group, track);
   for (let i = 0; i < 14; i++) {
     const f = track.main.getFrameAtT(i / 14);
     const cavern = i / 14 > 0.52 && i / 14 < 0.78;
@@ -189,7 +191,7 @@ function dressProps(group: THREE.Group, track: TrackWorld): void {
     pipe.rotation.y = Math.atan2(f.tx, f.tz);
     group.add(pipe);
     const lamp = new THREE.Mesh(lightGeo, neon);
-    lamp.position.set(f.x, f.y + 5.6, f.z);
+    lamp.position.set(f.x + f.rx * side, f.y + 8.2, f.z + f.rz * side);
     lamp.rotation.y = Math.atan2(f.tx, f.tz);
     group.add(lamp);
   }
@@ -199,33 +201,29 @@ function dressProps(group: THREE.Group, track: TrackWorld): void {
   tower.position.set(hf.x + hf.rx * -28, hf.y + 8, hf.z + hf.rz * -28);
   group.add(tower);
 
-  const gantry = new THREE.Mesh(new THREE.BoxGeometry(28, 1.4, 4), steel);
   const g = track.main.getFrameAtT(0.04);
-  gantry.position.set(g.x, g.y + 11, g.z);
+  const gantry = new THREE.Mesh(new THREE.BoxGeometry(g.width + 10, 1.2, 2.4), steel);
+  gantry.position.set(g.x, g.y + 16, g.z);
   gantry.rotation.y = Math.atan2(g.tx, g.tz);
   group.add(gantry);
 
   const archT = [0.27, 0.71];
   for (const t of archT) {
     const f = track.main.getFrameAtT(t);
-    const arch = new THREE.Mesh(new THREE.TorusGeometry(f.width * 0.42, 0.55, 8, 18, Math.PI), steel);
-    arch.position.set(f.x, f.y + 2.2, f.z);
-    arch.rotation.y = Math.atan2(f.tx, f.tz);
-    arch.rotation.z = Math.PI;
-    group.add(arch);
+    const span = f.width + 10;
+    for (const side of [-1, 1] as const) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(1.2, 16, 1.2), steel);
+      post.position.set(f.x + f.rx * (span * 0.5) * side, f.y + 8, f.z + f.rz * (span * 0.5) * side);
+      group.add(post);
+    }
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(span + 2, 1.1, 1.1), neon);
+    beam.position.set(f.x, f.y + 15.2, f.z);
+    beam.rotation.y = Math.atan2(f.tx, f.tz);
+    group.add(beam);
     const sign = new THREE.Mesh(new THREE.BoxGeometry(10, 3.2, 0.4), neon);
     sign.position.set(f.x + f.rx * (f.width * 0.5 + 8), f.y + 7, f.z + f.rz * (f.width * 0.5 + 8));
     sign.rotation.y = Math.atan2(f.tx, f.tz);
     group.add(sign);
-  }
-
-  const tunnelMat = new THREE.MeshStandardMaterial({ color: 0x2a3238, metalness: 0.35, roughness: 0.7 });
-  for (let i = 0; i < 6; i++) {
-    const f = track.main.getFrameAtT(0.6 + i * 0.012);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(f.width * 0.52, 0.85, 6, 16), tunnelMat);
-    ring.position.set(f.x, f.y + 1.4, f.z);
-    ring.rotation.y = Math.atan2(f.tx, f.tz);
-    group.add(ring);
   }
 
   const wf = track.main.getFrameAtT(0.83);
@@ -256,33 +254,21 @@ function dressProps(group: THREE.Group, track: TrackWorld): void {
 function dressCavern(group: THREE.Group, track: TrackWorld): void {
   const rock = new THREE.MeshStandardMaterial({ color: 0x1a2228, roughness: 0.92, metalness: 0.08 });
   const rib = new THREE.MeshStandardMaterial({ color: 0x2ee0ff, emissive: 0x0a6a78, emissiveIntensity: 1.8 });
-  const sodium = new THREE.MeshStandardMaterial({ color: 0xffb040, emissive: 0xaa5010, emissiveIntensity: 1.1 });
   for (let i = 0; i < 10; i++) {
     const t = 0.56 + i * 0.018;
     const f = track.main.getFrameAtT(t);
     const yaw = Math.atan2(f.tx, f.tz);
-    const shell = new THREE.Mesh(new THREE.CylinderGeometry(f.width * 0.72, f.width * 0.78, 9, 10, 1, true), rock);
-    shell.position.set(f.x, f.y + 5.4, f.z);
-    shell.rotation.z = Math.PI / 2;
-    shell.rotation.y = yaw;
-    group.add(shell);
-    const hoop = new THREE.Mesh(new THREE.TorusGeometry(f.width * 0.58, 0.22, 6, 18), i % 2 ? rib : sodium);
-    hoop.position.set(f.x, f.y + 3.2, f.z);
-    hoop.rotation.y = yaw;
-    group.add(hoop);
-    const pendant = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 8), sodium);
-    pendant.position.set(f.x, f.y + 7.2, f.z);
-    group.add(pendant);
-  }
-  for (const t of [0.555, 0.735]) {
-    const f = track.main.getFrameAtT(t);
-    const mouth = new THREE.Mesh(
-      new THREE.TorusGeometry(f.width * 0.82, 1.1, 8, 20),
-      new THREE.MeshStandardMaterial({ color: 0x12181c, metalness: 0.4, roughness: 0.55 }),
-    );
-    mouth.position.set(f.x, f.y + 4.4, f.z);
-    mouth.rotation.y = Math.atan2(f.tx, f.tz);
-    group.add(mouth);
+    const lat = f.width * 0.5 + 6;
+    for (const side of [-1, 1] as const) {
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(3.2, 12, 10), rock);
+      wall.position.set(f.x + f.rx * lat * side, f.y + 6, f.z + f.rz * lat * side);
+      wall.rotation.y = yaw;
+      group.add(wall);
+      const trim = new THREE.Mesh(new THREE.BoxGeometry(0.3, 10, 8), rib);
+      trim.position.set(f.x + f.rx * (lat - 1.4) * side, f.y + 6, f.z + f.rz * (lat - 1.4) * side);
+      trim.rotation.y = yaw;
+      group.add(trim);
+    }
   }
 }
 
@@ -373,8 +359,8 @@ function dressReef(group: THREE.Group, track: TrackWorld): void {
     }
   }
   const archF = track.main.getFrameAtT(0.9);
-  const reefArch = new THREE.Mesh(new THREE.TorusGeometry(archF.width * 0.7 + 8, 2.4, 8, 16, Math.PI), stone);
-  reefArch.position.set(archF.x + archF.rx * 18, archF.y + 6, archF.z + archF.rz * 18);
+  const reefArch = new THREE.Mesh(new THREE.TorusGeometry(14, 2.4, 8, 16, Math.PI), stone);
+  reefArch.position.set(archF.x + archF.rx * (archF.width * 0.5 + 28), archF.y + 10, archF.z + archF.rz * (archF.width * 0.5 + 28));
   reefArch.rotation.y = Math.atan2(archF.tx, archF.tz);
   reefArch.rotation.z = Math.PI;
   group.add(reefArch);
@@ -397,11 +383,11 @@ function dressShipyard(group: THREE.Group, track: TrackWorld): void {
   cross.position.y = 40;
   yard.add(cross);
   const hoist = new THREE.Mesh(new THREE.BoxGeometry(8, 6, 10), steel);
-  hoist.position.set(0, 36, 0);
+  hoist.position.set(span * 0.28, 36, 0);
   yard.add(hoist);
-  for (let i = -2; i <= 2; i++) {
-    const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 18, 5), rust);
-    cable.position.set(i * 3.2, 28, 0);
+  for (const side of [-1, 1] as const) {
+    const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 14, 5), rust);
+    cable.position.set(span * 0.38 * side, 30, 0);
     yard.add(cable);
   }
   yard.position.set(f.x, f.y, f.z);
@@ -512,6 +498,80 @@ function dressTourBiomes(group: THREE.Group, track: TrackWorld): void {
     const berg = new THREE.Mesh(new THREE.ConeGeometry(9, 22, 6), ice);
     berg.position.set(f.x + f.rx * (f.width * 0.5 + 48), f.y + 8, f.z + f.rz * (f.width * 0.5 + 48));
     group.add(berg);
+  }
+}
+
+/** Extra off-ribbon density: catwalks, tanks, pipe racks — never on the water. */
+function dressRefineryFill(group: THREE.Group, track: TrackWorld): void {
+  const rust = new THREE.MeshStandardMaterial({ color: 0x6a3a22, roughness: 0.9, metalness: 0.2 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0x3d4750, metalness: 0.55, roughness: 0.4 });
+  const slate = new THREE.MeshStandardMaterial({ color: 0x2a3238, metalness: 0.62, roughness: 0.32 });
+  const amber = new THREE.MeshStandardMaterial({ color: 0xff9a30, emissive: 0xaa4010, emissiveIntensity: 0.85 });
+  const flare = new THREE.MeshStandardMaterial({ color: 0xff6a18, emissive: 0xff4a00, emissiveIntensity: 1.6 });
+  const warning = new THREE.MeshStandardMaterial({ color: 0xffc428, emissive: 0x886010, emissiveIntensity: 0.55 });
+  for (let i = 0; i < 22; i++) {
+    const t = (i * 0.041) % 1;
+    const f = track.main.getFrameAtT(t);
+    const side = i % 2 ? 1 : -1;
+    const lat = f.width * 0.5 + 20 + (i % 5) * 3.4;
+    const px = f.x + f.rx * lat * side;
+    const pz = f.z + f.rz * lat * side;
+    const yaw = Math.atan2(f.tx, f.tz);
+    const kind = i % 5;
+    if (kind === 0) {
+      const tower = new THREE.Mesh(new THREE.CylinderGeometry(5.4, 7.2, 22, 12), rust);
+      tower.position.set(px, f.y + 11, pz);
+      group.add(tower);
+      const lip = new THREE.Mesh(new THREE.TorusGeometry(5.6, 0.35, 6, 14), steel);
+      lip.rotation.x = Math.PI / 2;
+      lip.position.set(px, f.y + 21.4, pz);
+      group.add(lip);
+    } else if (kind === 1) {
+      const sphere = new THREE.Mesh(new THREE.SphereGeometry(5.2, 14, 10), slate);
+      sphere.position.set(px, f.y + 6.4, pz);
+      group.add(sphere);
+      const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.55, 6.2, 6), steel);
+      legs.position.set(px, f.y + 3.1, pz);
+      group.add(legs);
+    } else if (kind === 2) {
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.7, 28, 6), steel);
+      mast.position.set(px, f.y + 14, pz);
+      group.add(mast);
+      const jib = new THREE.Mesh(new THREE.BoxGeometry(22, 0.55, 0.7), rust);
+      jib.position.set(px + f.tx * 8, f.y + 26, pz + f.tz * 8);
+      jib.rotation.y = yaw;
+      group.add(jib);
+      const cab = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.2, 2.4), warning);
+      cab.position.set(px, f.y + 24.2, pz);
+      group.add(cab);
+    } else if (kind === 3) {
+      const stack = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.6, 26, 8), slate);
+      stack.position.set(px, f.y + 13, pz);
+      group.add(stack);
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(1.4, 4.2, 6), flare);
+      flame.position.set(px, f.y + 28, pz);
+      group.add(flame);
+      group.add(new THREE.PointLight(0xff6a20, 22, 48).translateX(px).translateY(f.y + 28).translateZ(pz));
+    } else {
+      const tank = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.4, 12 + (i % 3) * 2, 10), i % 2 ? rust : steel);
+      tank.position.set(px, f.y + 6.5, pz);
+      group.add(tank);
+    }
+    if (i % 2 === 0) {
+      const walk = new THREE.Mesh(new THREE.BoxGeometry(10, 0.28, 1.15), steel);
+      walk.position.set(f.x + f.rx * (lat + 6) * side, f.y + 12.2, f.z + f.rz * (lat + 6) * side);
+      walk.rotation.y = yaw;
+      group.add(walk);
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(10, 0.12, 0.12), warning);
+      rail.position.set(f.x + f.rx * (lat + 6) * side, f.y + 13.1, f.z + f.rz * (lat + 6) * side);
+      rail.rotation.y = yaw;
+      group.add(rail);
+    }
+    if (i % 4 === 0) {
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.7, 8, 6), amber);
+      lamp.position.set(f.x + f.rx * (lat + 1.2) * side, f.y + 14.4, f.z + f.rz * (lat + 1.2) * side);
+      group.add(lamp);
+    }
   }
 }
 

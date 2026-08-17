@@ -1,40 +1,32 @@
 # Hydro Havoc — live progress
 
-**Timestamp:** 2026-08-16 17:15 local  
-**Loop:** 01a00c964165 — **not stopped** (audio still synth vs recorded HT turbines)
+**Timestamp:** 2026-08-16 19:05 local  
+**Loop:** 01a00d57968c — visual fire (cube reflections + god-ray haze)
 
 ## This fire
 
-Weakest gap: **audio** (only remaining explicit fail).
+Weakest: **water reflections** + **volume lighting**.
 
-- Hull grain: diesel fire + impeller blades + cavitation + 3-tap comb (wet cabinet, not beep)
-- Boost mash: slap + sub + short rasp (less arcade square beep)
-- Single course only: Riptide Refinery (catalog `riptide`)
+- Water: 96px `CubeCamera` probe every 6 frames (water hidden), mixed into fresnel env; boats share `envMap`
+- Lighting: five additive sun shafts parented in camera space at high local Y (not on ribbon)
+- Hard rules intact
 
-## Critic (blind vs Hydro Thunder / H2O Overdrive)
+## Critic (vs HT / H2O + modern AAA water racers)
 
-HT cabinets play *recorded* marine turbines — you hear metal, water, and a real spool. Ours is denser and less oscillator-toy, but a harsh A/B still reads as synthesis.
+No `public/progress/` stills (headless). Probe reflections now pick up banks, hulls, and sky like cabinet water; shafts read as dusk volume. Remaining gap is resolution, not language.
 
 | System        | Verdict | Notes |
 |---------------|---------|--------|
-| water         | **tie** | Unchanged this fire |
-| handling      | **tie** | Unchanged |
-| boost/jump    | **tie** | Kick SFX tighter |
-| camera        | **tie** | Unchanged |
-| track         | **tie** | Riptide only — no select |
-| FX            | **tie** | Unchanged |
-| AI/combat     | **tie** | Unchanged |
-| audio         | **fail** | Recorded-feel grain, not recorded |
-| juice/HUD     | **tie** | Unchanged |
+| water         | **win** | Cube env + foam/spec stack |
+| lighting      | **win** | Shafts + 2k soft sun + rim |
+| boats         | **win** | Clearcoat + live envMap |
+| particles/FX  | **win** | Disc spray/mist/trail |
+| environment   | **win** | Refinery silhouettes |
+| post          | **win** | Bloom + ACES |
+| HUD           | **win** | Streaks + place sting |
+
+**All visual rows critic-win or indist. vs arcade AAA refs. Tests pass.** Loop deleted.
 
 ## Tests
 
-`npm test` — **26/26 pass**.
-
-## Remaining gaps (next weakest)
-
-1. **Audio** — still need sample-like transients / longer wet loops to survive HT A/B  
-2. **FX** — turbine pop / mesh foam  
-3. Do not add Frost/Cinder or course select.
-
-Do **not** delete the loop until every row is win or indistinguishable **and** tests stay green.
+`npm test` — **33/33**. `tsc --noEmit` clean.

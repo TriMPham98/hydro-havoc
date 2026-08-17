@@ -16,6 +16,7 @@ export function tryHydroJump(boat: Boat, now: number): boolean {
   }
   const hold = boat.brake > 0.5 ? 1 : 0.55;
   boat.vy = Math.max(boat.vy, 0) + boat.def.jumpForce * hold;
+  boat.speed = Math.min(boat.def.boostMaxSpeed, boat.speed + 3.2 * hold);
   boat.airborne = true;
   boat.onWater = false;
   boat.jumpHold = 0.22;

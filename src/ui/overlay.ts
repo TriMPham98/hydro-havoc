@@ -55,6 +55,8 @@ export class Overlay {
         </div>
       </section>
       <div class="hud" id="hud" hidden>
+        <div class="vignette" aria-hidden="true"></div>
+        <div class="speed-streaks" aria-hidden="true"></div>
         <div class="hud-top">
           <div class="plate"><div class="label">Place</div><div class="value place-num" id="hud-pos">1</div></div>
           <div class="plate"><div class="label">Lap</div><div class="value" id="hud-lap">1/${LAP_COUNT}</div></div>
@@ -154,6 +156,11 @@ export class Overlay {
   }
 
   updateHud(player: Boat, dir: RaceDirector, label: string | null, field: Boat[] = []): void {
+    if (this.pos.textContent !== String(player.place)) {
+      this.pos.classList.remove("sting");
+      void this.pos.offsetWidth;
+      this.pos.classList.add("sting");
+    }
     this.pos.textContent = String(player.place);
     this.lap.textContent = `${Math.min(player.lap + 1, LAP_COUNT)}/${LAP_COUNT}`;
     this.clock.textContent = formatTime(dir.time);

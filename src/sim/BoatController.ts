@@ -3,7 +3,6 @@ import {
   HULL_RADIUS,
   OFFTRACK_TIME,
   RESPAWN_SPEED_FACTOR,
-  STALL_TIME,
   WATER_DAMP,
   WATER_SPRING,
 } from "./constants";
@@ -29,8 +28,8 @@ export interface ControllerResult {
 function steerCurve(speed: number, maxSpeed: number): number {
   const n = speed / Math.max(maxSpeed, 1);
   if (n < 0.12) return 0.42 + n * 4.2;
-  if (n < 0.58) return 1;
-  return lerp(1, 0.68, (n - 0.58) / 0.42);
+  if (n < 0.58) return 1.06;
+  return lerp(1.06, 0.7, (n - 0.58) / 0.42);
 }
 
 export function stepBoat(
@@ -79,7 +78,6 @@ export function stepBoat(
   if (spend.usingBoost && boostEdge && !result.jumped) {
     const punch = spend.usingSuper ? 11 : 7.5;
     boat.speed = Math.min(maxSpeed, boat.speed + punch);
-    boat.camShake = Math.max(boat.camShake, spend.usingSuper ? 0.4 : 0.22);
   }
 
   const fwd = headingVector(boat.yaw);
@@ -126,7 +124,6 @@ export function stepBoat(
     boat.vx = wall.vx;
     boat.vz = wall.vz;
     boat.speed = Math.hypot(wall.vx, wall.vz);
-    boat.camShake = Math.max(boat.camShake, 0.28);
     result.bankHit = true;
     if (boat.airborne && boat.vy < 0) boat.vy *= 0.2;
     const desired = Math.atan2(q.frame.tx, q.frame.tz);
@@ -138,22 +135,14 @@ export function stepBoat(
   const waterY = q.waterY + wave + 0.55;
   const hull = boat.y - HULL_RADIUS * 0.15;
 
-  const along = boat.vx * q.frame.tx + boat.vz * q.frame.tz;
-  const jammed = q.onRibbon && (boat.speed < 5 || along < -3) && result.bankHit;
-  if (jammed) boat.stallTime += dt;
-  else boat.stallTime = Math.max(0, boat.stallTime - dt * 2);
-
   if (!q.onRibbon) {
     boat.offTrackTime += dt;
   } else {
     boat.offTrackTime = 0;
   }
+  boat.stallTime = 0;
 
-  if (
-    boat.offTrackTime > OFFTRACK_TIME ||
-    boat.y < q.waterY - 8 ||
-    boat.stallTime > STALL_TIME
-  ) {
+  if (boat.offTrackTime > OFFTRACK_TIME || boat.y < q.waterY - 8) {
     const pose = respawnPose(track, boat.lastCheckpoint);
     boat.x = pose.x;
     boat.y = pose.y;

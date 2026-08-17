@@ -216,7 +216,7 @@ export class Game {
 
     const boosting = this.player.boostHeld && (this.player.boostFuel > 0 || this.player.superBoostRemaining > 0);
     const voice = this.player.def.id === "ironwake" ? 2 : this.player.def.id === "vesper" ? 1 : 0;
-    this.audio.setEngine(this.player.speed, boosting, voice);
+    this.audio.setEngine(this.player.speed, boosting, voice, this.player.airborne);
     if (this.overlay.showDebug) {
       this.overlay.setDebug(
         `fps ${(1 / dt).toFixed(0)}  spd ${this.player.speed.toFixed(1)}  t ${this.player.courseT.toFixed(3)}\nlap ${this.player.lap} cp ${this.player.lastCheckpoint} air ${this.player.airborne ? "Y" : "n"}  boost ${this.player.boostFuel.toFixed(2)}`,
