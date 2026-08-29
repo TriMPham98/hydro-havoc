@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { BoatDef } from "../data/boats";
 
 function planform(len: number, width: number): THREE.Shape {
@@ -32,7 +33,7 @@ function hullGeometry(def: BoatDef): THREE.BufferGeometry {
   return geo;
 }
 
-export function createBoatMesh(def: BoatDef): THREE.Group {
+export function createProceduralBoatMesh(def: BoatDef): THREE.Group {
   const g = new THREE.Group();
   const hullMat = new THREE.MeshPhysicalMaterial({
     color: def.color,
@@ -155,5 +156,97 @@ export function createBoatMesh(def: BoatDef): THREE.Group {
       obj.receiveShadow = true;
     }
   });
+  g.userData.procedural = true;
   return g;
+}
+
+const loader = new GLTFLoader();
+const templates = new Map<string, THREE.Group>();
+const inflight = new Map<string, Promise<THREE.Group | null>>();
+
+/** Blender export lives in public/boats — Vite serves that folder at `/boats/`. */
+export const BOAT_GLB_URL: Record<BoatDef["id"], string> = {
+  skimmer: "/boats/skimmer.glb",
+  ironwake: "/boats/ironwake.glb",
+  vesper: "/boats/vesper.glb",
+};
+
+const HIDDEN_HELPERS = new Set(["bowMarker", "sternMarker", "starboardMarker"]);
+
+function wireLoadedBoat(root: THREE.Group, def: BoatDef): void {
+  root.traverse((obj) => {
+    if (HIDDEN_HELPERS.has(obj.name)) obj.visible = false;
+    if (obj instanceof THREE.Mesh) {
+      obj.castShadow = true;
+      obj.receiveShadow = true;
+    }
+  });
+  let glow = root.getObjectByName("turbineGlow") as THREE.Mesh | undefined;
+  if (glow) {
+    glow.material = new THREE.MeshBasicMaterial({
+      color: def.accent,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
+  } else {
+    glow = new THREE.Mesh(
+      new THREE.ConeGeometry(0.18, 0.9, 8),
+      new THREE.MeshBasicMaterial({ color: def.accent, transparent: true, opacity: 0.0, depthWrite: false }),
+    );
+    glow.rotation.x = Math.PI / 2;
+    glow.position.set(0, 0.42, -def.hullLength * 0.46 - 0.45);
+    glow.name = "turbineGlow";
+    root.add(glow);
+  }
+  if (!root.getObjectByName("turbine")) {
+    const dummy = new THREE.Object3D();
+    dummy.name = "turbine";
+    dummy.position.set(0, 0.42, -def.hullLength * 0.46);
+    root.add(dummy);
+  }
+  root.userData.procedural = false;
+}
+
+function loadBoatTemplate(def: BoatDef): Promise<THREE.Group | null> {
+  const hit = templates.get(def.id);
+  if (hit) return Promise.resolve(hit);
+  const pending = inflight.get(def.id);
+  if (pending) return pending;
+  const job = loader
+    .loadAsync(BOAT_GLB_URL[def.id])
+    .then((gltf) => {
+      const scene = gltf.scene;
+      scene.name = def.id;
+      wireLoadedBoat(scene, def);
+      templates.set(def.id, scene);
+      inflight.delete(def.id);
+      return scene;
+    })
+    .catch((err: unknown) => {
+      console.warn(`Boat GLB missing for ${def.id}, using procedural hull`, err);
+      inflight.delete(def.id);
+      return null;
+    });
+  inflight.set(def.id, job);
+  return job;
+}
+
+export function getBoatTemplate(id: string): THREE.Group | undefined {
+  return templates.get(id);
+}
+
+export async function preloadBoatMeshes(defs: BoatDef[]): Promise<void> {
+  await Promise.all(defs.map((d) => loadBoatTemplate(d)));
+}
+
+export function createBoatMesh(def: BoatDef): THREE.Group {
+  const tmpl = templates.get(def.id);
+  if (tmpl) {
+    const clone = tmpl.clone(true);
+    wireLoadedBoat(clone, def);
+    return clone;
+  }
+  void loadBoatTemplate(def);
+  return createProceduralBoatMesh(def);
 }

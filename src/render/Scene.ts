@@ -5,7 +5,8 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import type { Boat } from "../sim/Boat";
 import type { TrackWorld } from "../sim/Track";
-import { createBoatMesh } from "./BoatMesh";
+import { BOATS } from "../data/boats";
+import { createBoatMesh, getBoatTemplate, preloadBoatMeshes } from "./BoatMesh";
 import { CameraRig } from "./CameraRig";
 import { Fx } from "./Fx";
 import { createOceanMaterial } from "./WaterMaterial";
@@ -31,6 +32,7 @@ export class GameRenderer {
   private waterMeshes: THREE.Object3D[] = [];
   private haze: THREE.Group;
   private hazeMat: THREE.MeshBasicMaterial;
+  private boatsReady: Promise<void>;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
@@ -109,6 +111,11 @@ export class GameRenderer {
     this.bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.32, 0.45, 0.82);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
+    this.boatsReady = preloadBoatMeshes(BOATS);
+  }
+
+  whenBoatsReady(): Promise<void> {
+    return this.boatsReady;
   }
 
   slam(x: number, y: number, z: number): void {
@@ -134,6 +141,13 @@ export class GameRenderer {
     for (const boat of boats) {
       seen.add(boat.id);
       let mesh = this.boats.get(boat.id);
+      const ready = getBoatTemplate(boat.def.id);
+      if (mesh && mesh.userData.procedural && ready) {
+        this.scene.remove(mesh);
+        mesh = createBoatMesh(boat.def);
+        this.boats.set(boat.id, mesh);
+        this.scene.add(mesh);
+      }
       if (!mesh) {
         mesh = createBoatMesh(boat.def);
         this.boats.set(boat.id, mesh);

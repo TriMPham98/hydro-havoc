@@ -50,7 +50,6 @@ export class Game {
     this.renderer = new GameRenderer(canvas);
     this.track = buildCourse(this.courseId);
     this.renderer.loadTrack(this.track);
-    this.spawnIdle();
 
     this.overlay.on({
       start: () => {
@@ -75,19 +74,23 @@ export class Game {
   }
 
   start(): void {
-    const tick = (now: number) => {
-      const raw = Math.min(MAX_FRAME_DT, (now - this.last) / 1000);
-      this.last = now;
-      this.acc += raw;
-      while (this.acc >= FIXED_DT) {
-        this.fixed(FIXED_DT);
-        this.acc -= FIXED_DT;
-      }
-      this.time += raw;
-      this.renderer.render(this.track, this.boats, this.player, raw, this.time);
+    void this.renderer.whenBoatsReady().then(() => {
+      this.spawnIdle();
+      this.last = performance.now();
+      const tick = (now: number) => {
+        const raw = Math.min(MAX_FRAME_DT, (now - this.last) / 1000);
+        this.last = now;
+        this.acc += raw;
+        while (this.acc >= FIXED_DT) {
+          this.fixed(FIXED_DT);
+          this.acc -= FIXED_DT;
+        }
+        this.time += raw;
+        this.renderer.render(this.track, this.boats, this.player, raw, this.time);
+        requestAnimationFrame(tick);
+      };
       requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
+    });
   }
 
   private spawnIdle(): void {
