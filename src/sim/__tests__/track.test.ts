@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildRiptideRefinery } from "../../data/tracks/riptideRefinery";
-import { queryCourse, resolveBank, respawnPose } from "../Track";
+import { gridPose, queryCourse, resolveBank, respawnPose, showcasePose } from "../Track";
 import { pairKey } from "../Collision";
 import { createBoat } from "../Boat";
 import { resolveHulls, resetRamTable } from "../Collision";
@@ -69,6 +69,37 @@ describe("track", () => {
     expect(maxX - minX).toBeGreaterThan(700);
     expect(maxZ - minZ).toBeGreaterThan(900);
     expect(track.main.totalLength).toBeGreaterThan(2200);
+  });
+
+  it("parks the hull-select pose in the canal center", () => {
+    const track = buildRiptideRefinery();
+    const pose = showcasePose(track);
+    const q = queryCourse(track, pose.x, pose.y, pose.z);
+    expect(q.onRibbon).toBe(true);
+    expect(Math.abs(q.lateral)).toBeLessThan(2);
+  });
+
+  it("spaces the start grid on the water, not in the banks", () => {
+    const track = buildRiptideRefinery();
+    const a = gridPose(track, 0);
+    const b = gridPose(track, 1);
+    const c = gridPose(track, 2);
+    expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThan(6);
+    expect(Math.hypot(a.x - c.x, a.z - c.z)).toBeGreaterThan(6);
+    for (let i = 0; i < 4; i++) {
+      const pose = gridPose(track, i);
+      const q = queryCourse(track, pose.x, pose.y, pose.z, pose.t);
+      expect(q.onRibbon).toBe(true);
+      expect(Math.abs(q.lateral)).toBeLessThan(q.halfWidth - 3.5);
+    }
+    const behind = 24;
+    const camX = a.x - Math.sin(a.yaw) * behind;
+    const camZ = a.z - Math.cos(a.yaw) * behind;
+    for (let i = 0; i < 4; i++) {
+      const pose = gridPose(track, i);
+      const along = (pose.x - camX) * Math.sin(a.yaw) + (pose.z - camZ) * Math.cos(a.yaw);
+      expect(along).toBeGreaterThan(10);
+    }
   });
 
   it("keeps the main canal at least 20m wide", () => {

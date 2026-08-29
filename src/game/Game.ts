@@ -1,11 +1,11 @@
 import type { BoatId } from "../data/boats";
-import { BOATS } from "../data/boats";
 import { buildCourse, type CourseId } from "../data/tracks/catalog";
 import { rollCrateKinds } from "../data/tracks/riptideRefinery";
 import { GameAudio } from "../audio/Audio";
 import { Input } from "../input/Input";
 import { GameRenderer } from "../render/Scene";
-import { createBoat, type Boat } from "../sim/Boat";
+import type { CameraMode } from "../render/CameraRig";
+import { copyPose, createBoat, headingVector, type Boat } from "../sim/Boat";
 import { assignAIBoats, driveAI } from "../sim/AIRacer";
 import { stepBoat } from "../sim/BoatController";
 import { resetRamTable, resolveHulls } from "../sim/Collision";
@@ -18,7 +18,8 @@ import {
   stepDirector,
   type RaceDirector,
 } from "../sim/RaceDirector";
-import { gridPose } from "../sim/Track";
+import { gridPose, showcasePose } from "../sim/Track";
+import { placeBoats } from "../sim/progress";
 import type { TrackWorld } from "../sim/Track";
 import { Overlay } from "../ui/overlay";
 
@@ -39,6 +40,8 @@ export class Game {
   private last = performance.now();
   private lastCount = "";
   private lastPlace = 1;
+  private lastPhase = "";
+  private lastScrape = 0;
   private playerBoat: BoatId = "skimmer";
   private courseId: CourseId = "riptide";
 
@@ -52,25 +55,22 @@ export class Game {
     this.renderer.loadTrack(this.track);
 
     this.overlay.on({
-      start: () => {
-        this.audio.resume();
-        this.mode = "select";
-        this.overlay.show("select");
-      },
-      select: (id) => {
-        this.playerBoat = id;
-      },
+      start: () => this.goSelect(),
+      select: (id) => this.pickHull(id),
       race: () => this.beginRace(),
       retry: () => this.beginRace(),
-      menu: () => {
-        this.mode = "title";
-        this.overlay.show("title");
-        this.spawnIdle();
-      },
+      menu: () => this.goTitle(),
       resume: () => this.resume(),
+      changeBoat: () => this.goSelect(),
     });
     this.overlay.show("title");
     window.addEventListener("resize", () => this.renderer.resize());
+    const unlock = () => {
+      this.audio.resume();
+      if (this.mode === "title" || this.mode === "select") this.audio.setMusic("title");
+    };
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
   }
 
   start(): void {
@@ -86,11 +86,42 @@ export class Game {
           this.acc -= FIXED_DT;
         }
         this.time += raw;
-        this.renderer.render(this.track, this.boats, this.player, raw, this.time);
+        this.renderer.render(this.track, this.boats, this.player, raw, this.time, this.camMode());
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
     });
+  }
+
+  private camMode(): CameraMode {
+    if (this.mode === "select") return "showcase";
+    if (this.mode === "race" && this.director.phase === "closing") return "finish";
+    if (this.mode === "results") return "finish";
+    return "chase";
+  }
+
+  private goTitle(): void {
+    this.mode = "title";
+    this.overlay.show("title");
+    this.audio.setMusic("title");
+    this.spawnIdle();
+  }
+
+  private goSelect(): void {
+    this.audio.resume();
+    this.audio.setMusic("title");
+    this.mode = "select";
+    this.overlay.show("select");
+    this.overlay.setSelected(this.playerBoat);
+    this.spawnIdle();
+  }
+
+  private pickHull(id: BoatId): void {
+    this.playerBoat = id;
+    if (this.mode !== "select" || !this.player) return;
+    this.player = createBoat("player", id, false);
+    this.parkShowcase();
+    this.boats = [this.player];
   }
 
   private spawnIdle(): void {
@@ -98,91 +129,162 @@ export class Game {
     rollCrateKinds(this.track);
     this.renderer.loadTrack(this.track);
     this.player = createBoat("player", this.playerBoat, false);
-    const pose = gridPose(this.track, 0);
-    this.player.x = pose.x;
-    this.player.y = pose.y;
-    this.player.z = pose.z;
-    this.player.yaw = pose.yaw;
+    const pose = this.mode === "select" ? showcasePose(this.track) : gridPose(this.track, 0);
+    copyPose(this.player, pose);
+    this.player.courseT = pose.t;
     this.boats = [this.player];
     this.director = createDirector();
+    if (this.mode === "select") this.renderer.camera.snapShowcase(this.player);
+    else this.renderer.camera.reset();
+  }
+
+  private pinGrid(): void {
+    this.boats.forEach((boat, i) => {
+      const pose = gridPose(this.track, i);
+      copyPose(boat, pose);
+      boat.courseT = pose.t;
+      boat.speed = 0;
+      boat.vx = 0;
+      boat.vy = 0;
+      boat.vz = 0;
+      boat.throttle = 0;
+      boat.steer = 0;
+      boat.brake = 0;
+      boat.boostHeld = false;
+    });
+  }
+
+  private parkShowcase(): void {
+    const pose = showcasePose(this.track);
+    copyPose(this.player, pose);
+    this.player.courseT = 0.06;
+    this.player.speed = 0;
+    this.player.vx = 0;
+    this.player.vy = 0;
+    this.player.vz = 0;
   }
 
   private beginRace(): void {
     this.audio.resume();
+    this.audio.setMusic("race");
     this.track = buildCourse(this.courseId);
     rollCrateKinds(this.track);
     this.renderer.loadTrack(this.track);
     resetRamTable();
     this.player = createBoat("player", this.playerBoat, false);
     const aiIds = assignAIBoats(this.playerBoat);
-    const extras = BOATS.map((b) => b.id).filter((id) => id !== this.playerBoat);
     this.boats = [this.player];
     for (let i = 0; i < AI_COUNT; i++) {
-      this.boats.push(createBoat(`ai${i}`, aiIds[i % aiIds.length] ?? extras[i % extras.length], true));
+      this.boats.push(createBoat(`ai${i}`, aiIds[i % aiIds.length] ?? "skimmer", true));
     }
     this.boats.forEach((b, i) => {
       const pose = gridPose(this.track, i);
-      b.x = pose.x;
-      b.y = pose.y;
-      b.z = pose.z;
-      b.yaw = pose.yaw;
+      copyPose(b, pose);
+      b.courseT = pose.t;
+      b.place = i + 1;
     });
+    placeBoats(this.boats);
     this.director = createDirector();
     startCountdown(this.director);
     this.mode = "race";
     this.overlay.show("hud");
     this.lastCount = "";
     this.lastPlace = this.player.place;
+    this.lastPhase = "countdown";
+    this.renderer.camera.snap(this.player, this.track);
   }
 
   private resume(): void {
     if (this.mode !== "pause") return;
     this.mode = "race";
     this.overlay.show("hud");
+    this.audio.setMusic("race");
   }
 
   private fixed(dt: number): void {
-    if (this.input.consumePause()) {
-      if (this.mode === "race") {
-        this.mode = "pause";
-        this.overlay.show("pause");
-      } else if (this.mode === "pause") {
-        this.resume();
-      }
-    }
+    this.menus();
 
-    const racing = this.mode === "race" && this.director.phase === "racing";
+    const racing = this.mode === "race" && (this.director.phase === "racing" || this.director.phase === "closing");
+    const counting = this.mode === "race" && this.director.phase === "countdown";
     const input = this.input.read();
 
-    if (this.mode === "race" && (this.director.phase === "countdown" || this.director.phase === "racing")) {
-      this.player.throttle = input.throttle;
-      this.player.steer = input.steer;
-      this.player.brake = input.brake;
-      this.player.boostHeld = input.boost;
+    if (counting) {
+      this.pinGrid();
+      stepDirector(this.director, this.boats, dt);
+      if (this.lastPhase === "countdown" && this.director.phase === "racing") {
+        for (const b of this.boats) {
+          b.speed = 18;
+          const h = headingVector(b.yaw);
+          b.vx = h.x * b.speed;
+          b.vz = h.z * b.speed;
+        }
+      }
+    } else if (this.mode === "race" && racing) {
+      const locked = this.player.finished;
+      this.player.throttle = locked ? 0 : input.throttle;
+      this.player.steer = locked ? 0 : input.steer;
+      this.player.brake = locked ? 0 : input.brake;
+      this.player.boostHeld = locked ? false : input.boost;
       for (const boat of this.boats) {
-        if (boat.ai) driveAI(boat, this.track, this.player, racing, this.boats);
+        if (boat.ai) driveAI(boat, this.track, this.player, true, this.boats);
       }
       for (const boat of this.boats) {
-        const step = stepBoat(boat, this.track, dt, this.director.time, !racing);
-        if (boat === this.player && step.landed) this.audio.splash();
+        const step = stepBoat(boat, this.track, dt, this.director.time, false);
+        if (boat !== this.player) continue;
+        if (step.landed) {
+          this.audio.splash();
+          this.renderer.slam(boat.x, boat.y + 0.4, boat.z);
+          this.renderer.hitPunch(0.35);
+        }
+        if (step.bankHit && boat.speed > 8) {
+          this.renderer.bankSpray(boat.x, boat.y + 0.5, boat.z);
+          boat.camShake = Math.max(boat.camShake, 0.22);
+          this.renderer.hitPunch(0.22);
+          if (this.time - this.lastScrape > 0.11) {
+            this.audio.scrape();
+            this.lastScrape = this.time;
+          }
+        }
+        if (step.respawned) {
+          this.overlay.flashHit("RETURN TO COURSE", 1200);
+          this.audio.respawn();
+          this.renderer.camera.snap(boat, this.track);
+        }
       }
-      if (racing) {
+      if (this.director.phase === "racing") {
         const rams = resolveHulls(this.boats, this.time);
         for (const ram of rams) {
           if (!ram.awarded) continue;
           this.audio.ram();
           this.renderer.slam(ram.defender.x, ram.defender.y + 1, ram.defender.z);
+          this.renderer.sparks(ram.defender.x, ram.defender.y + 1.2, ram.defender.z);
           if (ram.attacker === this.player || ram.defender === this.player) {
             this.overlay.flashHit(ram.attacker === this.player ? "RAM +1" : "HIT");
+            this.renderer.hitPunch(0.85);
           }
         }
         const ev = stepPickups(this.track, this.boats, dt, this.time);
         for (const e of ev) {
-          if (e.kind === "mine") this.audio.mine();
-          else this.audio.pickup(e.kind);
+          if (e.kind === "mine") {
+            this.audio.mine();
+            this.renderer.slam(e.x, e.y + 0.6, e.z);
+            this.renderer.hitPunch(e.boat === this.player ? 0.7 : 0.2);
+            if (e.boat === this.player) this.overlay.flashHit("MINE");
+          } else {
+            this.audio.pickup(e.kind);
+            if (e.boat === this.player) this.overlay.flashHit(e.kind === "super" ? "SUPER" : "BOOST");
+          }
         }
       }
       stepDirector(this.director, this.boats, dt);
+    }
+
+    if (this.mode === "race" && (counting || racing)) {
+      if (this.director.phase === "closing" && this.lastPhase !== "closing") {
+        this.overlay.flashHit("FINISH", 1600);
+        this.audio.finish();
+      }
+      this.lastPhase = this.director.phase;
       const label = countdownLabel(this.director);
       if (label && label !== this.lastCount) {
         this.audio.countdown(label);
@@ -194,13 +296,10 @@ export class Game {
         this.director.phase === "countdown" ? label : null,
         this.boats,
       );
-      if (racing && this.player.place !== this.lastPlace) {
-        if (this.player.place < this.lastPlace) {
-          this.overlay.flashHit("PASSED");
-          this.audio.announce();
-        } else if (this.player.place > this.lastPlace) {
-          this.overlay.flashHit("OVERTAKEN");
-          this.audio.announceDown();
+      if (this.director.phase === "racing" && this.player.place !== this.lastPlace) {
+        if (this.director.time > 2.2) {
+          if (this.player.place < this.lastPlace) this.overlay.flashHit("PASSED");
+          else if (this.player.place > this.lastPlace) this.overlay.flashHit("OVERTAKEN");
         }
         this.lastPlace = this.player.place;
       }
@@ -210,11 +309,13 @@ export class Game {
       this.mode = "results";
       this.overlay.showResults(this.boats);
       this.overlay.show("results");
-      this.audio.finish();
-    } else if (this.mode === "title" || this.mode === "select") {
+      this.audio.setMusic("title");
+    } else if (this.mode === "title") {
       this.player.throttle = 0.82;
       this.player.steer = Math.sin(this.time * 0.2) * 0.12;
       stepBoat(this.player, this.track, dt, 0, false);
+    } else if (this.mode === "select") {
+      this.parkShowcase();
     }
 
     const boosting = this.player.boostHeld && (this.player.boostFuel > 0 || this.player.superBoostRemaining > 0);
@@ -225,5 +326,35 @@ export class Game {
         `fps ${(1 / dt).toFixed(0)}  spd ${this.player.speed.toFixed(1)}  t ${this.player.courseT.toFixed(3)}\nlap ${this.player.lap} cp ${this.player.lastCheckpoint} air ${this.player.airborne ? "Y" : "n"}  boost ${this.player.boostFuel.toFixed(2)}`,
       );
     }
+  }
+
+  private menus(): void {
+    if (this.mode === "title") {
+      if (this.input.consumeConfirm() || this.input.consumePause()) this.goSelect();
+      return;
+    }
+    if (this.mode === "select") {
+      if (this.input.consumeMenuLeft()) this.overlay.cycleHull(-1);
+      if (this.input.consumeMenuRight()) this.overlay.cycleHull(1);
+      if (this.input.consumeConfirm()) this.beginRace();
+      if (this.input.consumePause()) this.goTitle();
+      return;
+    }
+    if (this.mode === "results") {
+      if (this.input.consumeConfirm()) this.beginRace();
+      if (this.input.consumePause()) this.goTitle();
+      return;
+    }
+    if (this.input.consumePause()) {
+      if (this.mode === "race") {
+        this.mode = "pause";
+        this.overlay.show("pause");
+        this.audio.setMusic("muted");
+      } else if (this.mode === "pause") {
+        this.resume();
+      }
+    }
+    if (this.mode === "pause" && this.input.consumeConfirm()) this.resume();
+    if (this.mode === "race") this.input.consumeConfirm();
   }
 }

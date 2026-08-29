@@ -3,57 +3,70 @@ import type { TrackWorld } from "../sim/Track";
 import type { ArcSpline } from "../sim/spline";
 import { createWaterMaterial } from "./WaterMaterial";
 
-function ribbonGeometry(spline: ArcSpline, closed: boolean, yLift = 0): THREE.BufferGeometry {
-  const segs = Math.max(24, Math.floor(spline.totalLength / 3.2));
+function ribbonGeometry(spline: ArcSpline, closed: boolean, yLift = 0, widthSegs = 12): THREE.BufferGeometry {
+  const segs = Math.max(24, Math.floor(spline.totalLength / 2.2));
   const positions: number[] = [];
-  const normals: number[] = [];
   const uvs: number[] = [];
   const indices: number[] = [];
+  const cols = widthSegs + 1;
 
   for (let i = 0; i <= segs; i++) {
     const t = i / segs;
     const f = spline.getFrameAtT(closed ? t : Math.min(t, 0.999));
     const hw = f.width * 0.5;
     const y = f.y + yLift;
-    positions.push(f.x - f.rx * hw, y, f.z - f.rz * hw);
-    positions.push(f.x + f.rx * hw, y, f.z + f.rz * hw);
-    normals.push(0, 1, 0, 0, 1, 0);
-    uvs.push(0, t * spline.totalLength * 0.08, 1, t * spline.totalLength * 0.08);
+    for (let w = 0; w <= widthSegs; w++) {
+      const u = w / widthSegs;
+      const lat = -hw + f.width * u;
+      positions.push(f.x + f.rx * lat, y, f.z + f.rz * lat);
+      uvs.push(u, t * spline.totalLength * 0.08);
+    }
     if (i < segs) {
-      const a = i * 2;
-      indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      const row = i * cols;
+      const next = (i + 1) * cols;
+      for (let w = 0; w < widthSegs; w++) {
+        const a = row + w;
+        const b = a + 1;
+        const c = next + w;
+        const d = c + 1;
+        indices.push(a, b, c, b, d, c);
+      }
     }
   }
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  geo.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
   geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(indices);
   geo.computeVertexNormals();
   return geo;
 }
 
-/** Continuous bank-lip rail — one strip, not a chain of boxes/buoys. */
-function railGeometry(spline: ArcSpline, closed: boolean, side: number): THREE.BufferGeometry {
-  const segs = Math.max(24, Math.floor(spline.totalLength / 2.4));
+/** Thick flume wall with inner face on the water and a top coping. */
+function canalWallGeometry(spline: ArcSpline, closed: boolean, side: number): THREE.BufferGeometry {
+  const segs = Math.max(24, Math.floor(spline.totalLength / 2.6));
   const positions: number[] = [];
   const indices: number[] = [];
-  const thick = 0.55;
-  const lift = 0.42;
+  const thick = 2.6;
+  const extraH = 2.2;
+  const flip = side < 0;
   for (let i = 0; i <= segs; i++) {
     const t = i / segs;
     const f = spline.getFrameAtT(closed ? t : Math.min(t, 0.999));
     const hw = f.width * 0.5;
-    const ox = f.x + f.rx * hw * side;
-    const oz = f.z + f.rz * hw * side;
-    const ix = ox - f.rx * thick * side;
-    const iz = oz - f.rz * thick * side;
-    positions.push(ix, f.y + lift, iz, ox, f.y + lift + 0.12, oz);
+    const y0 = f.y - 1.6;
+    const y1 = f.y + f.bankHeight + extraH;
+    const ix = f.x + f.rx * hw * side;
+    const iz = f.z + f.rz * hw * side;
+    const ox = f.x + f.rx * (hw + thick) * side;
+    const oz = f.z + f.rz * (hw + thick) * side;
+    positions.push(ix, y0, iz, ix, y1, iz, ox, y1, oz, ox, y0, oz);
     if (i < segs) {
-      const a = i * 2;
-      if (side > 0) indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
-      else indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      const a = i * 4;
+      const b = a + 4;
+      quad(indices, a + 0, a + 1, b + 1, b + 0, flip);
+      quad(indices, a + 1, a + 2, b + 2, b + 1, flip);
+      quad(indices, a + 2, a + 3, b + 3, b + 2, flip);
     }
   }
   const geo = new THREE.BufferGeometry();
@@ -63,21 +76,36 @@ function railGeometry(spline: ArcSpline, closed: boolean, side: number): THREE.B
   return geo;
 }
 
-function wallGeometry(spline: ArcSpline, closed: boolean, side: number): THREE.BufferGeometry {
-  const segs = Math.max(24, Math.floor(spline.totalLength / 3.2));
+/** Weathered steel cap — a dock lip, not lane paint. */
+function copingGeometry(spline: ArcSpline, closed: boolean, side: number): THREE.BufferGeometry {
+  const segs = Math.max(24, Math.floor(spline.totalLength / 2.6));
   const positions: number[] = [];
   const indices: number[] = [];
+  const overhang = 0.32;
+  const width = 1.35;
+  const thick = 0.34;
+  const extraH = 2.2;
+  const flip = side < 0;
   for (let i = 0; i <= segs; i++) {
     const t = i / segs;
     const f = spline.getFrameAtT(closed ? t : Math.min(t, 0.999));
     const hw = f.width * 0.5;
-    const x = f.x + f.rx * hw * side;
-    const z = f.z + f.rz * hw * side;
-    positions.push(x, f.y - 1.2, z, x, f.y + f.bankHeight, z);
+    const y0 = f.y + f.bankHeight + extraH;
+    const y1 = y0 + thick;
+    const inner = hw - overhang;
+    const outer = hw + width;
+    const ix = f.x + f.rx * inner * side;
+    const iz = f.z + f.rz * inner * side;
+    const ox = f.x + f.rx * outer * side;
+    const oz = f.z + f.rz * outer * side;
+    positions.push(ix, y0, iz, ix, y1, iz, ox, y1, oz, ox, y0, oz);
     if (i < segs) {
-      const a = i * 2;
-      if (side > 0) indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
-      else indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      const a = i * 4;
+      const b = a + 4;
+      quad(indices, a + 0, a + 1, b + 1, b + 0, !flip);
+      quad(indices, a + 1, a + 2, b + 2, b + 1, !flip);
+      quad(indices, a + 3, a + 2, b + 2, b + 3, !flip);
+      quad(indices, a + 0, a + 3, b + 3, b + 0, !flip);
     }
   }
   const geo = new THREE.BufferGeometry();
@@ -85,6 +113,41 @@ function wallGeometry(spline: ArcSpline, closed: boolean, side: number): THREE.B
   geo.setIndex(indices);
   geo.computeVertexNormals();
   return geo;
+}
+
+function waterlineGeometry(spline: ArcSpline, closed: boolean, side: number): THREE.BufferGeometry {
+  const segs = Math.max(24, Math.floor(spline.totalLength / 2.4));
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const inset = 0.7;
+  const flip = side < 0;
+  for (let i = 0; i <= segs; i++) {
+    const t = i / segs;
+    const f = spline.getFrameAtT(closed ? t : Math.min(t, 0.999));
+    const hw = f.width * 0.5;
+    const y = f.y + 0.08;
+    const ox = f.x + f.rx * hw * side;
+    const oz = f.z + f.rz * hw * side;
+    const ix = f.x + f.rx * (hw - inset) * side;
+    const iz = f.z + f.rz * (hw - inset) * side;
+    positions.push(ix, y, iz, ox, y, oz);
+    if (i < segs) {
+      const a = i * 2;
+      const b = a + 2;
+      if (flip) indices.push(a, a + 1, b + 1, a, b + 1, b);
+      else indices.push(a, b, b + 1, a, b + 1, a + 1);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function quad(indices: number[], a: number, b: number, c: number, d: number, inward: boolean): void {
+  if (inward) indices.push(a, b, c, a, c, d);
+  else indices.push(a, c, b, a, d, c);
 }
 
 export function createTrackGroup(track: TrackWorld): {
@@ -92,37 +155,55 @@ export function createTrackGroup(track: TrackWorld): {
   waterMat: THREE.ShaderMaterial;
 } {
   const group = new THREE.Group();
-  const waterMat = createWaterMaterial();
+  const waterMat = createWaterMaterial("canal");
   const wallMat = new THREE.MeshStandardMaterial({
-    color: 0x6b7680,
-    roughness: 0.78,
-    metalness: 0.16,
+    color: 0x7b868f,
+    roughness: 0.94,
+    metalness: 0.04,
+    side: THREE.DoubleSide,
   });
-  const lipMat = new THREE.MeshStandardMaterial({
-    color: 0xff8a2a,
-    emissive: 0xff6a10,
-    emissiveIntensity: 0.55,
-    roughness: 0.45,
+  const stainMat = new THREE.MeshStandardMaterial({
+    color: 0x6a757c,
+    roughness: 0.95,
+    metalness: 0.04,
+    side: THREE.DoubleSide,
   });
-  const railMat = new THREE.MeshStandardMaterial({
-    color: 0x3ad4e8,
-    emissive: 0x1aa8bc,
-    emissiveIntensity: 0.7,
-    roughness: 0.35,
+  const copeMat = new THREE.MeshStandardMaterial({
+    color: 0x8a7d6e,
+    roughness: 0.62,
+    metalness: 0.28,
+  });
+  const cutCopeMat = new THREE.MeshStandardMaterial({
+    color: 0x748088,
+    roughness: 0.58,
+    metalness: 0.32,
+  });
+  const foamMat = new THREE.MeshBasicMaterial({
+    color: 0xd5eef4,
+    transparent: true,
+    opacity: 0.22,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
   });
 
-  const addRibbon = (spline: ArcSpline, closed: boolean, accent: THREE.Material) => {
+  const addRibbon = (spline: ArcSpline, closed: boolean, cope: THREE.Material, walls: THREE.Material) => {
     const water = new THREE.Mesh(ribbonGeometry(spline, closed, 0.02), waterMat);
     water.renderOrder = 1;
     group.add(water);
-    group.add(new THREE.Mesh(wallGeometry(spline, closed, 1), wallMat));
-    group.add(new THREE.Mesh(wallGeometry(spline, closed, -1), wallMat));
-    group.add(new THREE.Mesh(railGeometry(spline, closed, 1), accent));
-    group.add(new THREE.Mesh(railGeometry(spline, closed, -1), accent));
+    group.add(new THREE.Mesh(canalWallGeometry(spline, closed, 1), walls));
+    group.add(new THREE.Mesh(canalWallGeometry(spline, closed, -1), walls));
+    group.add(new THREE.Mesh(copingGeometry(spline, closed, 1), cope));
+    group.add(new THREE.Mesh(copingGeometry(spline, closed, -1), cope));
+    const foamL = new THREE.Mesh(waterlineGeometry(spline, closed, 1), foamMat);
+    const foamR = new THREE.Mesh(waterlineGeometry(spline, closed, -1), foamMat);
+    foamL.renderOrder = 2;
+    foamR.renderOrder = 2;
+    group.add(foamL, foamR);
   };
 
-  addRibbon(track.main, true, lipMat);
-  addRibbon(track.shortcut, false, railMat);
+  addRibbon(track.main, true, copeMat, wallMat);
+  addRibbon(track.shortcut, false, cutCopeMat, stainMat);
 
   const start = track.start;
   const gate = new THREE.Group();
@@ -152,7 +233,6 @@ export function createTrackGroup(track: TrackWorld): {
   dressBeacons(group, track);
   dressSilos(group, track);
   dressCampus(group);
-  dressTourBiomes(group, track);
   dressHorizon(group);
   dressRefineryFill(group, track);
   for (let i = 0; i < 14; i++) {
@@ -293,14 +373,18 @@ function dressLandmarks(group: THREE.Group, track: TrackWorld): void {
   group.add(tanker);
 
   const fn = track.main.getFrameAtT(0.36);
-  const cone = new THREE.Mesh(new THREE.ConeGeometry(48, 72, 10), rust);
-  cone.position.set(fn.x + fn.rx * (fn.width * 0.5 + 95), fn.y + 28, fn.z + fn.rz * (fn.width * 0.5 + 95));
-  group.add(cone);
-  const glow = new THREE.Mesh(new THREE.ConeGeometry(14, 22, 8), lava);
-  glow.position.copy(cone.position);
-  glow.position.y += 38;
+  const tower = new THREE.Mesh(new THREE.CylinderGeometry(9, 14, 78, 12), rust);
+  tower.position.set(fn.x + fn.rx * (fn.width * 0.5 + 95), fn.y + 32, fn.z + fn.rz * (fn.width * 0.5 + 95));
+  group.add(tower);
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(10, 9, 4, 12), hull);
+  cap.position.copy(tower.position);
+  cap.position.y += 40;
+  group.add(cap);
+  const glow = new THREE.Mesh(new THREE.ConeGeometry(4.2, 14, 8), lava);
+  glow.position.copy(tower.position);
+  glow.position.y += 48;
   group.add(glow);
-  const plume = new THREE.PointLight(0xff5520, 42, 160);
+  const plume = new THREE.PointLight(0xff5520, 36, 140);
   plume.position.copy(glow.position);
   group.add(plume);
 }
@@ -327,35 +411,34 @@ function dressSkyline(group: THREE.Group, track: TrackWorld): void {
     group.add(cab);
   }
 
-  const palm = new THREE.MeshStandardMaterial({ color: 0x1c4a32, roughness: 0.85 });
   for (let i = 0; i < 8; i++) {
     const f = track.main.getFrameAtT(0.86 + i * 0.012);
     const side = i % 2 ? 1 : -1;
-    const tree = new THREE.Mesh(new THREE.ConeGeometry(3.2, 11, 6), palm);
-    tree.position.set(f.x + f.rx * (f.width * 0.5 + 16) * side, f.y + 6, f.z + f.rz * (f.width * 0.5 + 16) * side);
-    group.add(tree);
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.6, 7 + (i % 3), 8), rust);
+    drum.position.set(f.x + f.rx * (f.width * 0.5 + 16) * side, f.y + 4, f.z + f.rz * (f.width * 0.5 + 16) * side);
+    group.add(drum);
   }
 }
 
-/** Second environment: reef cliffs beside the ribbon, never on it. */
+/** Rusted quay cliffs beside the ribbon — still a refinery coast, never on the water. */
 function dressReef(group: THREE.Group, track: TrackWorld): void {
-  const coral = new THREE.MeshStandardMaterial({ color: 0x8a3a48, roughness: 0.8, metalness: 0.08 });
-  const stone = new THREE.MeshStandardMaterial({ color: 0x3a4a42, roughness: 0.92, metalness: 0.05 });
-  const moss = new THREE.MeshStandardMaterial({ color: 0x2a6a48, roughness: 0.88 });
+  const rust = new THREE.MeshStandardMaterial({ color: 0x6a3a28, roughness: 0.9, metalness: 0.14 });
+  const stone = new THREE.MeshStandardMaterial({ color: 0x3a4448, roughness: 0.92, metalness: 0.08 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0x4a545c, metalness: 0.5, roughness: 0.42 });
   for (let i = 0; i < 12; i++) {
     const t = 0.78 + i * 0.014;
     const f = track.main.getFrameAtT(t);
     const side = -1;
     const lat = f.width * 0.5 + 22 + (i % 3) * 5;
-    const cliff = new THREE.Mesh(new THREE.BoxGeometry(10 + (i % 3) * 4, 18 + (i % 4) * 5, 14), i % 2 ? stone : coral);
+    const cliff = new THREE.Mesh(new THREE.BoxGeometry(10 + (i % 3) * 4, 18 + (i % 4) * 5, 14), i % 2 ? stone : rust);
     cliff.position.set(f.x + f.rx * lat * side, f.y + 8, f.z + f.rz * lat * side);
     cliff.rotation.y = Math.atan2(f.tx, f.tz) + 0.2 * (i % 2 ? 1 : -1);
     group.add(cliff);
     if (i % 3 === 0) {
-      const cap = new THREE.Mesh(new THREE.DodecahedronGeometry(4.2), moss);
-      cap.position.copy(cliff.position);
-      cap.position.y += 12;
-      group.add(cap);
+      const tank = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.6, 10, 8), steel);
+      tank.position.copy(cliff.position);
+      tank.position.y += 12;
+      group.add(tank);
     }
   }
   const archF = track.main.getFrameAtT(0.9);
@@ -476,31 +559,6 @@ function dressCampus(group: THREE.Group): void {
   group.add(new THREE.PointLight(0xff6a20, 50, 180).translateX(ox).translateY(70).translateZ(oz));
 }
 
-/** Off-ribbon worlds: rust mesa, neon blocks, ice bergs. Never on the water. */
-function dressTourBiomes(group: THREE.Group, track: TrackWorld): void {
-  const sand = new THREE.MeshStandardMaterial({ color: 0xc48a48, roughness: 0.95, metalness: 0.02 });
-  const neon = new THREE.MeshStandardMaterial({ color: 0xff2a88, emissive: 0x880830, emissiveIntensity: 1.4 });
-  const ice = new THREE.MeshStandardMaterial({ color: 0xc8e8f4, roughness: 0.22, metalness: 0.35 });
-  for (let i = 0; i < 7; i++) {
-    const f = track.main.getFrameAtT(0.24 + i * 0.018);
-    const mesa = new THREE.Mesh(new THREE.BoxGeometry(18 + (i % 3) * 6, 10 + i * 2, 22), sand);
-    mesa.position.set(f.x + f.rx * (f.width * 0.5 + 36), f.y + 6 + i, f.z + f.rz * (f.width * 0.5 + 36));
-    group.add(mesa);
-  }
-  for (let i = 0; i < 6; i++) {
-    const f = track.main.getFrameAtT(0.48 + i * 0.02);
-    const slab = new THREE.Mesh(new THREE.BoxGeometry(10, 28 + i * 5, 10), neon);
-    slab.position.set(f.x + f.rx * -(f.width * 0.5 + 42), f.y + 16 + i * 2, f.z + f.rz * -(f.width * 0.5 + 42));
-    group.add(slab);
-  }
-  for (let i = 0; i < 5; i++) {
-    const f = track.main.getFrameAtT(0.72 + i * 0.03);
-    const berg = new THREE.Mesh(new THREE.ConeGeometry(9, 22, 6), ice);
-    berg.position.set(f.x + f.rx * (f.width * 0.5 + 48), f.y + 8, f.z + f.rz * (f.width * 0.5 + 48));
-    group.add(berg);
-  }
-}
-
 /** Extra off-ribbon density: catwalks, tanks, pipe racks — never on the water. */
 function dressRefineryFill(group: THREE.Group, track: TrackWorld): void {
   const rust = new THREE.MeshStandardMaterial({ color: 0x6a3a22, roughness: 0.9, metalness: 0.2 });
@@ -527,12 +585,13 @@ function dressRefineryFill(group: THREE.Group, track: TrackWorld): void {
       lip.position.set(px, f.y + 21.4, pz);
       group.add(lip);
     } else if (kind === 1) {
-      const sphere = new THREE.Mesh(new THREE.SphereGeometry(5.2, 14, 10), slate);
-      sphere.position.set(px, f.y + 6.4, pz);
-      group.add(sphere);
-      const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.55, 6.2, 6), steel);
-      legs.position.set(px, f.y + 3.1, pz);
-      group.add(legs);
+      const drum = new THREE.Mesh(new THREE.CylinderGeometry(4.4, 4.6, 11, 12), rust);
+      drum.position.set(px, f.y + 6.2, pz);
+      group.add(drum);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(4.5, 0.22, 6, 12), steel);
+      ring.rotation.x = Math.PI / 2;
+      ring.position.set(px, f.y + 11.4, pz);
+      group.add(ring);
     } else if (kind === 2) {
       const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.7, 28, 6), steel);
       mast.position.set(px, f.y + 14, pz);
@@ -576,18 +635,18 @@ function dressRefineryFill(group: THREE.Group, track: TrackWorld): void {
 }
 
 function dressHorizon(group: THREE.Group): void {
-  const rock = new THREE.MeshStandardMaterial({ color: 0x1a2830, roughness: 1, metalness: 0 });
-  const snow = new THREE.MeshStandardMaterial({ color: 0x8aa0a8, roughness: 0.7 });
-  const peaks: [number, number, number, number][] = [
-    [-380, -180, 110, 1],
-    [1100, 200, 130, 0],
-    [80, 1480, 150, 1],
-    [-420, 900, 95, 0],
-    [1280, 1320, 120, 1],
+  const rock = new THREE.MeshStandardMaterial({ color: 0x243038, roughness: 1, metalness: 0 });
+  const dusk = new THREE.MeshStandardMaterial({ color: 0x3a2a22, roughness: 0.96, metalness: 0 });
+  const ridges: [number, number, number, number][] = [
+    [-380, -180, 70, 1],
+    [1100, 200, 86, 0],
+    [80, 1480, 92, 1],
+    [-420, 900, 64, 0],
+    [1280, 1320, 78, 1],
   ];
-  for (const [x, z, h, icy] of peaks) {
-    const m = new THREE.Mesh(new THREE.ConeGeometry(h * 0.55, h, 7), icy ? snow : rock);
-    m.position.set(x, h * 0.35, z);
+  for (const [x, z, h, warm] of ridges) {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(h * 0.9, h * 1.15, h * 0.55, 6), warm ? dusk : rock);
+    m.position.set(x, h * 0.18, z);
     group.add(m);
   }
 }

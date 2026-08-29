@@ -168,6 +168,46 @@ export function fillSpoolLoop(data: Float32Array, sr: number): void {
   smearAsMic(data);
 }
 
+/** Slow dusk pad for attract / menus. */
+export function fillTitleMusic(data: Float32Array, sr: number): void {
+  for (let i = 0; i < data.length; i++) {
+    const t = i / sr;
+    const env = 0.55 + 0.45 * Math.sin(t * 0.7);
+    const a = Math.sin(2 * Math.PI * 110 * t);
+    const e = Math.sin(2 * Math.PI * 164.81 * t + 0.2);
+    const c = Math.sin(2 * Math.PI * 196 * t + 0.4);
+    const swell = Math.sin(2 * Math.PI * 0.25 * t) * 0.15;
+    data[i] = (a * 0.38 + e * 0.28 + c * 0.18 + swell) * env * 0.22;
+  }
+  const fade = Math.min(600, Math.floor(data.length / 10));
+  for (let i = 0; i < fade; i++) {
+    const w = i / fade;
+    data[i] *= w;
+    data[data.length - 1 - i] *= w;
+  }
+}
+
+/** Driving pulse under the engine — not a pop hook. */
+export function fillRaceMusic(data: Float32Array, sr: number): void {
+  let n = 0;
+  for (let i = 0; i < data.length; i++) {
+    const t = i / sr;
+    const beat = (t * 2.4) % 1;
+    const kick = beat < 0.08 ? (1 - beat / 0.08) * Math.sin(2 * Math.PI * 62 * t) : 0;
+    const bass = Math.sin(2 * Math.PI * 73.4 * t) * (beat < 0.5 ? 0.22 : 0.08);
+    const grit = Math.random() * 2 - 1;
+    n = n * 0.86 + grit * 0.14;
+    const hat = beat > 0.48 && beat < 0.54 ? n * 0.18 : n * 0.03;
+    data[i] = kick * 0.32 + bass + hat * 0.22;
+  }
+  const fade = Math.min(400, Math.floor(data.length / 12));
+  for (let i = 0; i < fade; i++) {
+    const w = i / fade;
+    data[i] *= w;
+    data[data.length - 1 - i] *= w;
+  }
+}
+
 export function hullRms(data: ArrayLike<number>): number {
   let s = 0;
   for (let i = 0; i < data.length; i++) s += data[i] * data[i];

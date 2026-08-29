@@ -1,5 +1,5 @@
-import { CHECKPOINT_COUNT, HULL_RADIUS, LATERAL_PAD } from "./constants";
-import { lerp, wrap01 } from "./math";
+import { CHECKPOINT_COUNT, LATERAL_PAD } from "./constants";
+import { clamp, lerp, wrap01 } from "./math";
 import { ArcSpline, type ControlPoint, type Frame } from "./spline";
 import type { PickupKind } from "./BoostSystem";
 
@@ -110,7 +110,7 @@ export function resolveBank(
   vx: number,
   vz: number,
 ): { x: number; z: number; vx: number; vz: number; hit: boolean } {
-  const limit = q.halfWidth - HULL_RADIUS;
+  const limit = q.halfWidth - 1.2;
   if (Math.abs(q.lateral) <= limit) return { x, z, vx, vz, hit: false };
   const sign = Math.sign(q.lateral) || 1;
   const over = Math.abs(q.lateral) - limit;
@@ -128,8 +128,8 @@ export function resolveBank(
   const tx = q.frame.tx;
   const tz = q.frame.tz;
   const along = nvx * tx + nvz * tz;
-  nvx = tx * along * 0.94;
-  nvz = tz * along * 0.94;
+  nvx = tx * along * 0.985;
+  nvz = tz * along * 0.985;
   return { x: pushedX, z: pushedZ, vx: nvx, vz: nvz, hit: true };
 }
 
@@ -144,15 +144,54 @@ export function respawnPose(track: TrackWorld, checkpoint: number): { x: number;
   };
 }
 
-export function gridPose(track: TrackWorld, slot: number): { x: number; y: number; z: number; yaw: number } {
-  const back = 10 + Math.floor(slot / 2) * 8;
-  const side = slot % 2 === 0 ? -4.2 : 4.2;
-  const f = track.main.getFrameAtT(0.004);
+export function gridPose(track: TrackWorld, slot: number): { x: number; y: number; z: number; yaw: number; t: number } {
+  const row = Math.floor(slot / 2);
+  const side = slot % 2 === 0 ? -3.4 : 3.4;
+  const spacing = 7;
+  const frontT = 0.05;
+  const t = wrap01(frontT - (row * spacing) / track.main.totalLength);
+  const f = track.main.getFrameAtT(t);
+  const maxLat = Math.max(2.8, f.width * 0.5 - 5.2);
+  const lat = clamp(side, -maxLat, maxLat);
   return {
-    x: f.x - f.tx * back + f.rx * side,
+    x: f.x + f.rx * lat,
     y: f.y + 1.05,
-    z: f.z - f.tz * back + f.rz * side,
+    z: f.z + f.rz * lat,
     yaw: Math.atan2(f.tx, f.tz),
+    t,
+  };
+}
+
+/** Pull a world point back onto the water if it has drifted into a bank. */
+export function clampToCanal(
+  track: TrackWorld,
+  x: number,
+  y: number,
+  z: number,
+  hintT: number,
+  pad = 4.2,
+): { x: number; y: number; z: number } {
+  const q = queryCourse(track, x, y, z, hintT);
+  const limit = Math.max(1.2, q.halfWidth - pad);
+  if (Math.abs(q.lateral) <= limit) return { x, y, z };
+  const extra = Math.abs(q.lateral) - limit;
+  const sign = Math.sign(q.lateral) || 1;
+  return {
+    x: x - q.frame.rx * sign * extra,
+    y,
+    z: z - q.frame.rz * sign * extra,
+  };
+}
+
+/** Center of a wide harbor straight — hull select, not the start grid. */
+export function showcasePose(track: TrackWorld): { x: number; y: number; z: number; yaw: number; t: number } {
+  const f = track.main.getFrameAtT(0.06);
+  return {
+    x: f.x,
+    y: f.y + 1.05,
+    z: f.z,
+    yaw: Math.atan2(f.tx, f.tz),
+    t: 0.06,
   };
 }
 

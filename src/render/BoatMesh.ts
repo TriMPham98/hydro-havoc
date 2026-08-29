@@ -157,6 +157,7 @@ export function createProceduralBoatMesh(def: BoatDef): THREE.Group {
     }
   });
   g.userData.procedural = true;
+  g.userData.hullId = def.id;
   return g;
 }
 
@@ -206,6 +207,7 @@ function wireLoadedBoat(root: THREE.Group, def: BoatDef): void {
     root.add(dummy);
   }
   root.userData.procedural = false;
+  root.userData.hullId = def.id;
 }
 
 function loadBoatTemplate(def: BoatDef): Promise<THREE.Group | null> {

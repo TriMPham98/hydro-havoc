@@ -1,7 +1,7 @@
-import { BOATS, statBars, type BoatId } from "../data/boats";
+import { BOATS, boatById, statBars, type BoatId } from "../data/boats";
 import type { CourseId } from "../data/tracks/catalog";
 import type { Boat } from "../sim/Boat";
-import { BOOST_CAP, LAP_COUNT } from "../sim/constants";
+import { BOOST_CAP, LAP_COUNT, SUPER_DURATION } from "../sim/constants";
 import { formatTime, type RaceDirector } from "../sim/RaceDirector";
 
 export type Screen = "title" | "select" | "hud" | "pause" | "results";
@@ -17,6 +17,7 @@ export class Overlay {
   private countdown!: HTMLElement;
   private callout!: HTMLElement;
   private pack!: HTMLElement;
+  private gate!: HTMLElement;
   private calloutUntil = 0;
   private pos!: HTMLElement;
   private lap!: HTMLElement;
@@ -27,11 +28,11 @@ export class Overlay {
   private superFill!: HTMLElement;
   private onStart?: () => void;
   private onSelect?: (id: BoatId) => void;
-
   private onRace?: () => void;
   private onRetry?: () => void;
   private onMenu?: () => void;
   private onResume?: () => void;
+  private onChangeBoat?: () => void;
   selected: BoatId = "skimmer";
   course: CourseId = "riptide";
   showDebug = false;
@@ -39,19 +40,24 @@ export class Overlay {
   constructor(root: HTMLElement) {
     this.root = root;
     root.innerHTML = `
-      <section class="screen scrim" id="title">
+      <section class="screen title-screen" id="title">
         <h1 class="wordmark">HYDRO<span>HAVOC</span></h1>
         <p class="tagline">Riptide Refinery</p>
         <div class="btn-row">
-          <button class="primary" id="title-start">Start Race</button>
+          <button class="primary press-start" id="title-start">Press Start</button>
         </div>
+        <p class="hint">Enter / Space · Gamepad A</p>
       </section>
-      <section class="screen scrim" id="select" hidden>
-        <h2 class="wordmark" style="font-size:42px">Choose Hull</h2>
-        <p class="tagline">One canal. Three hulls.</p>
-        <div class="boat-grid" id="boat-grid"></div>
-        <div class="btn-row" style="margin-top:22px">
-          <button class="primary" id="select-go">Launch</button>
+      <section class="screen select-screen" id="select" hidden>
+        <h2 class="wordmark select-title">Choose Hull</h2>
+        <aside class="hull-sheet" id="hull-sheet"></aside>
+        <div class="select-dock">
+          <div class="boat-grid" id="boat-grid"></div>
+          <div class="btn-row" style="margin-top:12px">
+            <button class="ghost" id="select-back">Back</button>
+            <button class="primary" id="select-go">Launch</button>
+          </div>
+          <p class="hint">← → hull · Enter launch · Esc back</p>
         </div>
       </section>
       <div class="hud" id="hud" hidden>
@@ -72,6 +78,9 @@ export class Overlay {
           <div><kbd>W</kbd> throttle <kbd>S</kbd> brake <kbd>A D</kbd> steer</div>
           <div><kbd>Shift</kbd> boost · Hydro Jump: brake then boost · <kbd>Esc</kbd> pause</div>
         </div>
+        <div class="gate-lights" id="gate-lights" hidden>
+          <i></i><i></i><i></i>
+        </div>
         <div class="countdown" id="countdown"></div>
         <div class="callout" id="callout"></div>
         <ol class="pack" id="pack"></ol>
@@ -89,12 +98,14 @@ export class Overlay {
       </section>
       <section class="screen scrim" id="results" hidden>
         <div class="results">
-          <h2>Finish</h2>
+          <h2 id="result-head">Finish</h2>
+          <p class="result-sub" id="result-sub"></p>
           <ol id="result-list"></ol>
           <div class="btn-row">
             <button class="primary" id="retry">Retry</button>
             <button class="ghost" id="to-select">Change Boat</button>
           </div>
+          <p class="hint">Enter retry · Esc title</p>
         </div>
       </section>
       <pre class="debug" id="debug" hidden></pre>
@@ -109,6 +120,7 @@ export class Overlay {
     this.countdown = this.el("#countdown");
     this.callout = this.el("#callout");
     this.pack = this.el("#pack");
+    this.gate = this.el("#gate-lights");
     this.pos = this.el("#hud-pos");
     this.lap = this.el("#hud-lap");
     this.clock = this.el("#hud-clock");
@@ -118,11 +130,16 @@ export class Overlay {
     this.superFill = this.el("#super-fill");
 
     this.el("#title-start").addEventListener("click", () => this.onStart?.());
+    this.title.addEventListener("click", (e) => {
+      if (e.target instanceof HTMLElement && e.target.closest("button")) return;
+      this.onStart?.();
+    });
     this.el("#select-go").addEventListener("click", () => this.onRace?.());
+    this.el("#select-back").addEventListener("click", () => this.onMenu?.());
     this.el("#pause-resume").addEventListener("click", () => this.onResume?.());
     this.el("#pause-menu").addEventListener("click", () => this.onMenu?.());
     this.el("#retry").addEventListener("click", () => this.onRetry?.());
-    this.el("#to-select").addEventListener("click", () => this.onSelectMenu());
+    this.el("#to-select").addEventListener("click", () => this.onChangeBoat?.());
     this.renderBoatCards();
   }
 
@@ -133,6 +150,7 @@ export class Overlay {
     menu?: () => void;
     resume?: () => void;
     select?: (id: BoatId) => void;
+    changeBoat?: () => void;
   }): void {
     this.onStart = handlers.start;
     this.onRace = handlers.race;
@@ -140,6 +158,7 @@ export class Overlay {
     this.onMenu = handlers.menu;
     this.onResume = handlers.resume;
     this.onSelect = handlers.select;
+    this.onChangeBoat = handlers.changeBoat;
   }
 
   show(screen: Screen): void {
@@ -155,6 +174,14 @@ export class Overlay {
     this.renderBoatCards();
   }
 
+  cycleHull(dir: number): BoatId {
+    const i = BOATS.findIndex((b) => b.id === this.selected);
+    const next = BOATS[(i + dir + BOATS.length) % BOATS.length];
+    this.setSelected(next.id);
+    this.onSelect?.(next.id);
+    return next.id;
+  }
+
   updateHud(player: Boat, dir: RaceDirector, label: string | null, field: Boat[] = []): void {
     if (this.pos.textContent !== String(player.place)) {
       this.pos.classList.remove("sting");
@@ -167,11 +194,13 @@ export class Overlay {
     this.speed.textContent = String(Math.round(player.speed * 2.4)).padStart(2, "0");
     this.sector.textContent = sectorName(player.courseT, this.course);
     this.boostFill.style.width = `${(player.boostFuel / BOOST_CAP) * 100}%`;
-    this.superFill.style.width = `${(player.superBoostRemaining / 2) * 100}%`;
+    this.superFill.style.width = `${(player.superBoostRemaining / SUPER_DURATION) * 100}%`;
     const hot = player.boostHeld && (player.boostFuel > 0 || player.superBoostRemaining > 0);
     this.hud.classList.toggle("boosting", hot);
     this.hud.classList.toggle("super-on", player.superBoostRemaining > 0 && player.boostHeld);
-    this.countdown.textContent = label ?? "";
+    this.countdown.textContent = label === "GO" ? "GO" : "";
+    this.gate.hidden = !label;
+    this.hud.dataset.count = label ?? "";
     if (field.length) {
       this.pack.innerHTML = field
         .slice()
@@ -185,12 +214,17 @@ export class Overlay {
     }
   }
 
-  flashHit(text: string): void {
+  flashHit(text: string, ms = 900): void {
     this.callout.textContent = text;
-    this.calloutUntil = performance.now() + 900;
+    this.calloutUntil = performance.now() + ms;
   }
 
   showResults(boats: Boat[]): void {
+    const you = boats.find((b) => !b.ai);
+    const place = you?.place ?? 0;
+    const ordinal = place === 1 ? "1st" : place === 2 ? "2nd" : place === 3 ? "3rd" : `${place}th`;
+    this.el("#result-head").textContent = place === 1 ? "You Win" : "Finish";
+    this.el("#result-sub").textContent = you ? `${ordinal} · ${you.def.name} · ${formatTime(you.finishTime)}` : "";
     const list = this.el("#result-list");
     list.innerHTML = boats
       .slice()
@@ -207,23 +241,13 @@ export class Overlay {
     this.debug.textContent = text;
   }
 
-  private onSelectMenu(): void {
-    this.show("select");
-    this.onMenu?.();
-  }
-
   private renderBoatCards(): void {
     const grid = this.el("#boat-grid");
     grid.innerHTML = "";
     for (const boat of BOATS) {
       const btn = document.createElement("button");
       btn.className = `boat-card${boat.id === this.selected ? " selected" : ""}`;
-      btn.innerHTML = `<h3>${boat.name}</h3><p>${boat.role} — ${boat.blurb}</p>${statBars(boat)
-        .map(
-          (s) =>
-            `<div class="stat"><span>${s.label}</span><div class="bar"><i style="width:${Math.round(s.value * 100)}%"></i></div></div>`,
-        )
-        .join("")}`;
+      btn.innerHTML = `<h3>${boat.name}</h3><span class="role">${boat.role}</span>`;
       btn.addEventListener("click", () => {
         this.selected = boat.id;
         this.onSelect?.(boat.id);
@@ -231,6 +255,17 @@ export class Overlay {
       });
       grid.appendChild(btn);
     }
+    const def = BOATS.find((b) => b.id === this.selected) ?? boatById("skimmer");
+    this.el("#hull-sheet").innerHTML = `
+      <h3>${def.name}</h3>
+      <span class="role">${def.role}</span>
+      <p>${def.blurb}</p>
+      ${statBars(def)
+        .map(
+          (s) =>
+            `<div class="stat"><span>${s.label}</span><div class="bar"><i style="width:${Math.round(s.value * 100)}%"></i></div></div>`,
+        )
+        .join("")}`;
   }
 
   private el(sel: string): HTMLElement {

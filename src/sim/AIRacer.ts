@@ -16,7 +16,8 @@ export function driveAI(boat: Boat, track: TrackWorld, player: Boat, racing: boo
   const look = 16 + boat.speed * 0.35;
   const targetT = boat.courseT + look / track.main.totalLength;
   const frame = track.main.getFrameAtT(targetT);
-  const weave = Math.sin(boat.time * 0.55 + boat.x * 0.02) * 5.2;
+  const launch = boat.lap === 0 && boat.courseT < 0.12;
+  const weave = Math.sin(boat.time * 0.55 + boat.x * 0.02) * (launch ? 1.4 : 3.2);
   let laneOff = weave;
   const choke = boat.courseT > 0.37 && boat.courseT < 0.46;
   if (choke) laneOff *= 0.28;
@@ -24,10 +25,10 @@ export function driveAI(boat: Boat, track: TrackWorld, player: Boat, racing: boo
   const pdz = player.z - boat.z;
   const pdist = Math.hypot(pdx, pdz);
   const tDelta = boat.courseT + boat.lap - (player.courseT + player.lap);
-  const drafting = tDelta < -0.002 && tDelta > -0.045 && pdist < 18;
-  const bump = Math.abs(tDelta) < 0.018 && pdist < 9.5;
+  const drafting = !launch && tDelta < -0.002 && tDelta > -0.045 && pdist < 18;
+  const bump = !launch && Math.abs(tDelta) < 0.018 && pdist < 9.5;
   if (drafting) laneOff = (player.x - frame.x) * frame.rx + (player.z - frame.z) * frame.rz;
-  if (bump) laneOff += Math.sign(Math.sin(boat.time * 3.1 + boat.x)) * 5.2;
+  if (bump) laneOff += Math.sign(Math.sin(boat.time * 3.1 + boat.x)) * 3.2;
   const laneX = frame.x + frame.rx * laneOff;
   const laneZ = frame.z + frame.rz * laneOff;
   let rival = player;
@@ -41,14 +42,14 @@ export function driveAI(boat: Boat, track: TrackWorld, player: Boat, racing: boo
     }
   }
   const setPiece = boat.courseT > 0.26 && boat.courseT < 0.38;
-  const scrum = rivalDist < 14 && Math.abs(rival.courseT - boat.courseT) < 0.05;
+  const scrum = !launch && rivalDist < 14 && Math.abs(rival.courseT - boat.courseT) < 0.05;
   const ramLane =
     scrum ||
     (rivalDist < 24 && boat.speed > rival.speed - 2 && Math.abs(rival.courseT - boat.courseT) < 0.09) ||
     (setPiece && rivalDist < 32);
   const rdx = rival.x - boat.x;
   const rdz = rival.z - boat.z;
-  const ramMix = scrum ? 0.72 : ramLane || bump ? 0.55 : 0;
+  const ramMix = launch ? 0 : scrum ? 0.72 : ramLane || bump ? 0.55 : 0;
   const dx = rdx * ramMix + (laneX - boat.x) * (1 - ramMix * 0.35);
   const dz = rdz * ramMix + (laneZ - boat.z) * (1 - ramMix * 0.35);
   const desired = Math.atan2(dx, dz);
@@ -79,6 +80,7 @@ export function driveAI(boat: Boat, track: TrackWorld, player: Boat, racing: boo
 export function assignAIBoats(playerId: string): Array<"skimmer" | "ironwake" | "vesper"> {
   const all: Array<"skimmer" | "ironwake" | "vesper"> = ["skimmer", "ironwake", "vesper"];
   const rest = all.filter((id) => id !== playerId);
-  while (rest.length < 3) rest.push(rest[rest.length - 1] ?? "skimmer");
-  return rest.slice(0, 3);
+  const out: Array<"skimmer" | "ironwake" | "vesper"> = [];
+  for (let i = 0; i < 3; i++) out.push(rest[i % rest.length] ?? "skimmer");
+  return out;
 }

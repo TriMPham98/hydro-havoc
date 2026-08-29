@@ -1,4 +1,14 @@
-import { fillCabinIR, fillChopLoop, fillFieldLoop, fillHullLoop, fillIntakeLoop, fillSpoolLoop, fillWetSlap } from "./hullSample";
+import {
+  fillCabinIR,
+  fillChopLoop,
+  fillFieldLoop,
+  fillHullLoop,
+  fillIntakeLoop,
+  fillRaceMusic,
+  fillSpoolLoop,
+  fillTitleMusic,
+  fillWetSlap,
+} from "./hullSample";
 
 export class GameAudio {
   private ctx: AudioContext | null = null;
@@ -20,9 +30,11 @@ export class GameAudio {
   private screamGain: GainNode | null = null;
   private lastSlap = 0;
   private lastBoost = false;
-  private lastAir = false;
   private started = false;
   private bus: GainNode | null = null;
+  private titleGain: GainNode | null = null;
+  private raceGain: GainNode | null = null;
+  private musicKind: "title" | "race" | "muted" = "muted";
 
   resume(): void {
     if (!this.ctx) this.ctx = new AudioContext();
@@ -39,6 +51,7 @@ export class GameAudio {
     this.startWetSlap();
     this.startField();
     this.startScream();
+    this.startMusic();
   }
 
   private dest(): AudioNode {
@@ -291,33 +304,104 @@ export class GameAudio {
     this.scream?.playbackRate.setTargetAtTime(0.85 + speed * 0.028 + (boosting ? 0.45 : 0), now, 0.05);
     this.screamGain?.gain.setTargetAtTime(boosting ? 0.055 : speed > 22 ? 0.01 : 0, now, 0.03);
     if (boosting && !wasBoost) {
-      this.noiseBurst(0.12, 0.12);
+      this.noiseBurst(0.12, 0.12, 900);
     }
-    if (this.lastAir && !airborne) {
-      this.splash();
-    }
-    this.lastAir = airborne;
+
     if (!airborne && speed > 16 && now - this.lastSlap > (boosting ? 0.22 : 0.38)) {
       this.lastSlap = now;
       this.noiseBurst(0.05, 0.035);
     }
   }
 
+  setMusic(kind: "title" | "race" | "muted"): void {
+    if (!this.ctx || !this.started) return;
+    if (kind === this.musicKind) return;
+    this.musicKind = kind;
+    const now = this.ctx.currentTime;
+    this.titleGain?.gain.setTargetAtTime(kind === "title" ? 0.2 : 0, now, 0.18);
+    this.raceGain?.gain.setTargetAtTime(kind === "race" ? 0.14 : 0, now, 0.12);
+  }
+
   beep(_freq: number, dur = 0.12, _type: OscillatorType = "square", gain = 0.06): void {
-    this.noiseBurst(Math.max(0.05, dur), gain * 0.85);
+    this.noiseBurst(Math.max(0.05, dur), gain * 0.85, 420);
   }
 
   pickup(kind: string): void {
-    if (kind === "super") this.noiseBurst(0.14, 0.08);
-    else if (kind === "red") this.noiseBurst(0.1, 0.07);
-    else this.noiseBurst(0.08, 0.055);
+    if (kind === "super") {
+      this.tone(523, 0.07, "triangle", 0.05);
+      this.tone(784, 0.09, "triangle", 0.045, 0.07);
+      this.tone(1046, 0.12, "sine", 0.04, 0.14);
+    } else if (kind === "red") {
+      this.tone(660, 0.08, "triangle", 0.055);
+      this.tone(990, 0.1, "sine", 0.04, 0.06);
+    } else {
+      this.tone(880, 0.07, "sine", 0.05);
+      this.tone(1320, 0.08, "sine", 0.035, 0.05);
+    }
   }
 
   ram(): void {
-    this.noiseBurst(0.22, 0.13);
+    this.noiseBurst(0.2, 0.14, 180);
+    this.tone(78, 0.14, "sawtooth", 0.07);
   }
 
-  private noiseBurst(dur: number, gain: number): void {
+  scrape(): void {
+    this.noiseBurst(0.08, 0.055, 1800, 900);
+  }
+
+  respawn(): void {
+    this.tone(196, 0.1, "square", 0.04);
+    this.tone(147, 0.12, "square", 0.035, 0.08);
+  }
+
+  private startMusic(): void {
+    if (!this.ctx) return;
+    const music = this.ctx.createGain();
+    music.gain.value = 1;
+    music.connect(this.ctx.destination);
+
+    const titleGain = this.ctx.createGain();
+    titleGain.gain.value = 0;
+    const titleBuf = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * 4), this.ctx.sampleRate);
+    fillTitleMusic(titleBuf.getChannelData(0), this.ctx.sampleRate);
+    const titleSrc = this.ctx.createBufferSource();
+    titleSrc.buffer = titleBuf;
+    titleSrc.loop = true;
+    const titleLp = this.ctx.createBiquadFilter();
+    titleLp.type = "lowpass";
+    titleLp.frequency.value = 1400;
+    titleSrc.connect(titleLp).connect(titleGain).connect(music);
+    titleSrc.start();
+    this.titleGain = titleGain;
+
+    const raceGain = this.ctx.createGain();
+    raceGain.gain.value = 0;
+    const raceBuf = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * 2.5), this.ctx.sampleRate);
+    fillRaceMusic(raceBuf.getChannelData(0), this.ctx.sampleRate);
+    const raceSrc = this.ctx.createBufferSource();
+    raceSrc.buffer = raceBuf;
+    raceSrc.loop = true;
+    raceSrc.connect(raceGain).connect(music);
+    raceSrc.start();
+    this.raceGain = raceGain;
+  }
+
+  private tone(freq: number, dur: number, type: OscillatorType, gain: number, delay = 0): void {
+    if (!this.ctx) return;
+    const osc = this.ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.value = freq;
+    const g = this.ctx.createGain();
+    const t0 = this.ctx.currentTime + delay;
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(gain, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
+    osc.connect(g).connect(this.dest());
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  }
+
+  private noiseBurst(dur: number, gain: number, lpHz = 420, hpHz = 0): void {
     if (!this.ctx) return;
     const len = Math.floor(this.ctx.sampleRate * dur);
     const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
@@ -328,37 +412,52 @@ export class GameAudio {
     src.buffer = buf;
     const lp = this.ctx.createBiquadFilter();
     lp.type = "lowpass";
-    lp.frequency.value = 420;
+    lp.frequency.value = lpHz;
     const g = this.ctx.createGain();
     g.gain.value = gain;
-    src.connect(lp).connect(g).connect(this.dest());
+    if (hpHz > 0) {
+      const hp = this.ctx.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.value = hpHz;
+      src.connect(hp).connect(lp).connect(g).connect(this.dest());
+    } else {
+      src.connect(lp).connect(g).connect(this.dest());
+    }
     src.start();
   }
 
   splash(): void {
-    this.noiseBurst(0.22, 0.12);
-    this.noiseBurst(0.1, 0.05);
+    this.noiseBurst(0.2, 0.11, 520);
+    this.noiseBurst(0.08, 0.045, 1400, 400);
   }
 
   mine(): void {
-    this.noiseBurst(0.28, 0.1);
+    this.noiseBurst(0.28, 0.12, 140);
+    this.tone(48, 0.22, "sine", 0.08);
   }
 
   announce(): void {
-    this.noiseBurst(0.09, 0.06);
-    setTimeout(() => this.noiseBurst(0.11, 0.055), 90);
+    this.tone(880, 0.08, "square", 0.045);
+    this.tone(1174, 0.1, "square", 0.04, 0.08);
   }
 
   announceDown(): void {
-    this.noiseBurst(0.14, 0.055);
+    this.tone(494, 0.09, "square", 0.04);
+    this.tone(330, 0.12, "square", 0.035, 0.09);
   }
 
   countdown(n: string): void {
-    this.noiseBurst(n === "GO" ? 0.18 : 0.12, n === "GO" ? 0.09 : 0.06);
+    if (n === "GO") {
+      this.tone(784, 0.18, "square", 0.07);
+      this.tone(392, 0.18, "sawtooth", 0.03);
+    } else if (n === "1") this.tone(523, 0.1, "square", 0.055);
+    else if (n === "2") this.tone(440, 0.1, "square", 0.05);
+    else this.tone(392, 0.1, "square", 0.05);
   }
 
   finish(): void {
-    this.noiseBurst(0.16, 0.07);
-    setTimeout(() => this.noiseBurst(0.2, 0.08), 140);
+    this.tone(392, 0.12, "triangle", 0.05);
+    this.tone(523, 0.14, "triangle", 0.045, 0.1);
+    this.tone(784, 0.2, "triangle", 0.05, 0.22);
   }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createBoat } from "../Boat";
-import { driveAI } from "../AIRacer";
+import { assignAIBoats, driveAI } from "../AIRacer";
 import { buildRiptideRefinery } from "../../data/tracks/riptideRefinery";
 
 describe("AI theater", () => {
@@ -42,5 +42,14 @@ describe("AI theater", () => {
     driveAI(ai, track, player, true, [player, ai]);
     expect(ai.throttle).toBeGreaterThan(0.6);
     expect(Math.abs(ai.steer)).toBeGreaterThan(0);
+  });
+
+  it("fills the field with the other two hulls, not a triple copy", () => {
+    const ids = assignAIBoats("skimmer");
+    expect(ids).toHaveLength(3);
+    expect(ids.includes("ironwake")).toBe(true);
+    expect(ids.includes("vesper")).toBe(true);
+    expect(ids.every((id) => id !== "skimmer")).toBe(true);
+    expect(ids.filter((id) => id === ids[ids.length - 1]).length).toBeLessThan(3);
   });
 });

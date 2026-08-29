@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { fillCabinIR, fillFieldLoop, fillHullLoop, fillIntakeLoop, fillSpoolLoop, fillWetSlap, hullRms } from "../../audio/hullSample";
+import {
+  fillCabinIR,
+  fillFieldLoop,
+  fillHullLoop,
+  fillIntakeLoop,
+  fillRaceMusic,
+  fillSpoolLoop,
+  fillTitleMusic,
+  fillWetSlap,
+  hullRms,
+} from "../../audio/hullSample";
 
 describe("hull grain", () => {
   it("fills a non-silent loop with energy", () => {
@@ -47,5 +57,16 @@ describe("hull grain", () => {
     fillSpoolLoop(data, 22050);
     expect(hullRms(data)).toBeGreaterThan(0.04);
     expect(hullRms(data)).toBeLessThan(0.6);
+  });
+
+  it("title and race beds are audible and not clipping", () => {
+    const title = new Float32Array(8000);
+    fillTitleMusic(title, 22050);
+    expect(hullRms(title)).toBeGreaterThan(0.02);
+    expect(hullRms(title)).toBeLessThan(0.4);
+    const race = new Float32Array(8000);
+    fillRaceMusic(race, 22050);
+    expect(hullRms(race)).toBeGreaterThan(0.02);
+    expect(hullRms(race)).toBeLessThan(0.45);
   });
 });

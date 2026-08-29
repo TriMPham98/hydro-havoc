@@ -2,17 +2,27 @@ import * as THREE from "three";
 import type { Boat } from "../sim/Boat";
 import { headingVector } from "../sim/Boat";
 import { lerp, wrapAngle } from "../sim/math";
+import { queryCourse, type TrackWorld } from "../sim/Track";
+
+export type CameraMode = "chase" | "showcase" | "finish";
+
+function follow(dt: number, rate: number): number {
+  return 1 - Math.exp(-rate * Math.min(Math.max(dt, 1 / 240), 0.05));
+}
 
 export class CameraRig {
   readonly camera: THREE.PerspectiveCamera;
   private look = new THREE.Vector3();
+  private lookWant = new THREE.Vector3();
   private desired = new THREE.Vector3();
   private yaw = 0;
-  private roll = 0;
+  private rideY = 1;
+  private orbit = 0.55;
   private primed = false;
+  private fovDirty = true;
 
   constructor(aspect: number) {
-    this.camera = new THREE.PerspectiveCamera(62, aspect, 0.2, 1800);
+    this.camera = new THREE.PerspectiveCamera(56, aspect, 0.35, 4200);
     this.camera.position.set(0, 8, -14);
   }
 
@@ -21,24 +31,104 @@ export class CameraRig {
     this.camera.updateProjectionMatrix();
   }
 
-  follow(boat: Boat, dt: number, boosting: boolean, superBoost: boolean): void {
-    if (!this.primed) {
-      this.yaw = boat.yaw;
-      this.primed = true;
-    }
-    this.yaw += wrapAngle(boat.yaw - this.yaw) * (1 - Math.pow(0.08, dt));
-    const fwd = headingVector(this.yaw);
-    const back = 13.2 + boat.speed * 0.078 + (superBoost ? 2.1 : boosting ? 1.05 : 0);
-    const height = 6.15 + boat.speed * 0.034 + (boat.airborne ? 0.85 : 0);
-    this.desired.set(boat.x - fwd.x * back, boat.y + height, boat.z - fwd.z * back);
-    this.camera.position.lerp(this.desired, 1 - Math.pow(0.012, dt));
-    this.look.set(boat.x + fwd.x * 18, boat.y + 1.2, boat.z + fwd.z * 18);
+  reset(): void {
+    this.primed = false;
+  }
+
+  snap(boat: Boat, track?: TrackWorld): void {
+    this.yaw = boat.yaw;
+    this.rideY = boat.y;
+    this.primed = true;
+    this.chaseTarget(boat, false, false, track);
+    this.camera.position.copy(this.desired);
+    this.look.copy(this.lookWant);
     this.camera.lookAt(this.look);
-    const wantRoll = -boat.steer * (boosting ? 0.035 : 0.018);
-    this.roll = lerp(this.roll, wantRoll, 1 - Math.pow(0.05, dt));
-    this.camera.rotateZ(this.roll);
-    const targetFov = superBoost ? 76 : boosting ? 69 : 60;
-    this.camera.fov = lerp(this.camera.fov, targetFov, 1 - Math.pow(0.02, dt));
+    this.setFov(56);
+  }
+
+  follow(boat: Boat, dt: number, boosting: boolean, superBoost: boolean, track?: TrackWorld): void {
+    if (!this.primed) {
+      this.snap(boat, track);
+      return;
+    }
+    this.yaw += wrapAngle(boat.yaw - this.yaw) * follow(dt, 3.6);
+    this.rideY = lerp(this.rideY, boat.y, follow(dt, 4.4));
+    this.chaseTarget(boat, boosting, superBoost, track);
+    const k = follow(dt, 7.6);
+    this.camera.position.lerp(this.desired, k);
+    this.look.lerp(this.lookWant, k);
+    this.camera.lookAt(this.look);
+    this.setFov(lerp(this.camera.fov, superBoost ? 64 : boosting ? 59 : 56, follow(dt, 5)));
+  }
+
+  /**
+   * Heading chase, pulled toward the canal center. Extra back/height at low
+   * speed so the start grid is in front of the lens, not inside it.
+   */
+  private chaseTarget(boat: Boat, boosting: boolean, superBoost: boolean, track?: TrackWorld): void {
+    const speedK = Math.min(1, boat.speed / 32);
+    const back = 16.8 + (1 - speedK) * 7.2 + (superBoost ? 1.2 : boosting ? 0.5 : 0);
+    const height = 6.5 + (1 - speedK) * 2.1 + boat.speed * 0.008 + (boat.airborne ? 0.4 : 0);
+    const fwd = headingVector(this.yaw);
+    let x = boat.x - fwd.x * back;
+    let z = boat.z - fwd.z * back;
+    if (track) {
+      const q = queryCourse(track, boat.x, boat.y, boat.z, boat.courseT);
+      x -= q.frame.rx * q.lateral * 0.7;
+      z -= q.frame.rz * q.lateral * 0.7;
+    }
+    this.desired.set(x, this.rideY + height, z);
+    this.lookWant.set(boat.x + fwd.x * 6, this.rideY + 0.95, boat.z + fwd.z * 6);
+  }
+
+  showcase(boat: Boat, _time: number, dt: number): void {
+    this.primed = false;
+    this.orbit += dt * 0.38;
+    this.placeShowcase(boat);
+    const k = follow(dt, 5.5);
+    this.camera.position.lerp(this.desired, k);
+    this.look.lerp(this.lookWant, k);
+    this.camera.lookAt(this.look);
+    this.setFov(lerp(this.camera.fov, 34, follow(dt, 6)));
+  }
+
+  snapShowcase(boat: Boat): void {
+    this.primed = false;
+    this.placeShowcase(boat);
+    this.camera.position.copy(this.desired);
+    this.look.copy(this.lookWant);
+    this.camera.lookAt(this.look);
+    this.setFov(34);
+  }
+
+  /** High circle around the parked hull so the path stays above the canal walls. */
+  private placeShowcase(boat: Boat): void {
+    const radius = 10.2;
+    this.desired.set(
+      boat.x + Math.cos(this.orbit) * radius,
+      boat.y + 6.4,
+      boat.z + Math.sin(this.orbit) * radius,
+    );
+    this.lookWant.set(boat.x, boat.y + 0.7, boat.z);
+  }
+
+  finish(boat: Boat, dt: number, track?: TrackWorld): void {
+    this.primed = false;
+    this.rideY = lerp(this.rideY, boat.y, follow(dt, 4));
+    this.yaw += wrapAngle(boat.yaw - this.yaw) * follow(dt, 2.4);
+    this.chaseTarget(boat, false, false, track);
+    this.desired.y += 1.4;
+    const k = follow(dt, 5);
+    this.camera.position.lerp(this.desired, k);
+    this.look.lerp(this.lookWant, k);
+    this.camera.lookAt(this.look);
+    this.setFov(lerp(this.camera.fov, 50, follow(dt, 5)));
+  }
+
+  private setFov(next: number): void {
+    if (Math.abs(this.camera.fov - next) < 0.04 && !this.fovDirty) return;
+    this.camera.fov = next;
     this.camera.updateProjectionMatrix();
+    this.fovDirty = false;
   }
 }

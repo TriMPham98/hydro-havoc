@@ -86,11 +86,19 @@ export function boatById(id: BoatId): BoatDef {
   return found;
 }
 
+function fleetBar(def: BoatDef, key: "maxSpeed" | "boostMaxSpeed" | "turnRate" | "mass"): number {
+  const vals = BOATS.map((b) => b[key]);
+  const lo = Math.min(...vals);
+  const hi = Math.max(...vals);
+  if (hi === lo) return 0.7;
+  return 0.2 + 0.8 * ((def[key] - lo) / (hi - lo));
+}
+
 export function statBars(def: BoatDef): { label: string; value: number }[] {
   return [
-    { label: "Speed", value: def.maxSpeed / 45 },
-    { label: "Boost", value: def.boostMaxSpeed / 68 },
-    { label: "Turn", value: def.turnRate / 2.7 },
-    { label: "Hull", value: def.mass / 1.4 },
+    { label: "Speed", value: fleetBar(def, "maxSpeed") },
+    { label: "Boost", value: fleetBar(def, "boostMaxSpeed") },
+    { label: "Turn", value: fleetBar(def, "turnRate") },
+    { label: "Armor", value: fleetBar(def, "mass") },
   ];
 }
