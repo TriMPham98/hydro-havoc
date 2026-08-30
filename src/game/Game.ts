@@ -1,4 +1,4 @@
-import { BOATS, type BoatId } from "../data/boats";
+import type { BoatId } from "../data/boats";
 import { buildCourse, type CourseId } from "../data/tracks/catalog";
 import { rollCrateKinds } from "../data/tracks/riptideRefinery";
 import { GameAudio } from "../audio/Audio";
@@ -112,7 +112,6 @@ export class Game {
   }
 
   private camMode(): CameraMode {
-    if (this.mode === "title") return "attract";
     if (this.mode === "select") return "showcase";
     if (this.mode === "race" && this.director.phase === "closing") return "finish";
     if (this.mode === "results") return "finish";
@@ -164,25 +163,16 @@ export class Game {
       this.renderer.camera.snapShowcase(this.player);
       return;
     }
-    const hulls: BoatId[] = [
-      this.playerBoat,
-      ...BOATS.map((b) => b.id).filter((id) => id !== this.playerBoat),
-    ];
-    this.player = createBoat("player", hulls[0] ?? "skimmer", false);
+    this.player = createBoat("player", this.playerBoat, false);
+    const pose = attractPose(this.track, 0);
+    copyPose(this.player, pose);
+    this.player.courseT = pose.t;
+    this.player.speed = 22;
+    const h = headingVector(this.player.yaw);
+    this.player.vx = h.x * this.player.speed;
+    this.player.vz = h.z * this.player.speed;
+    this.player.throttle = 0.8;
     this.boats = [this.player];
-    for (let i = 1; i < hulls.length; i++) {
-      this.boats.push(createBoat(`ai${i - 1}`, hulls[i] ?? "skimmer", true));
-    }
-    this.boats.forEach((boat, i) => {
-      const pose = attractPose(this.track, i);
-      copyPose(boat, pose);
-      boat.courseT = pose.t;
-      boat.speed = 22;
-      const h = headingVector(boat.yaw);
-      boat.vx = h.x * boat.speed;
-      boat.vz = h.z * boat.speed;
-      boat.throttle = 0.8;
-    });
     this.director = createDirector();
     this.lastAttractBeat = -1;
     this.renderer.camera.reset();

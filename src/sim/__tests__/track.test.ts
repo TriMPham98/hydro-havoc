@@ -100,18 +100,12 @@ describe("track", () => {
     expect(maxJump).toBeLessThan(0.55);
   });
 
-  it("puts attract wingmen ahead of the camera host", () => {
+  it("parks the title attract hull on the canal center", () => {
     const track = buildRiptideRefinery();
     const host = attractPose(track, 0);
-    const port = attractPose(track, 1);
-    const stbd = attractPose(track, 2);
-    expect(port.t).toBeGreaterThan(host.t);
-    expect(stbd.t).toBeGreaterThan(host.t);
-    expect(Math.hypot(port.x - stbd.x, port.z - stbd.z)).toBeGreaterThan(8);
-    for (const pose of [host, port, stbd]) {
-      const q = queryCourse(track, pose.x, pose.y, pose.z, pose.t);
-      expect(q.onRibbon).toBe(true);
-    }
+    const q = queryCourse(track, host.x, host.y, host.z, host.t);
+    expect(q.onRibbon).toBe(true);
+    expect(Math.abs(q.lateral)).toBeLessThan(2);
   });
 
   it("parks the hull-select pose in the canal center", () => {

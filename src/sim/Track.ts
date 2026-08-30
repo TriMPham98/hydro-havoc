@@ -198,10 +198,7 @@ export function clampToCanal(
   };
 }
 
-/**
- * Title attract pack. Slot 0 is the camera host at the back; 1 and 2 sit
- * ahead port/starboard so the chase cam actually sees all three hulls.
- */
+/** Title attract: a single hull on the canal center. Extra slots stay unused. */
 export function attractPose(
   track: TrackWorld,
   slot: number,
