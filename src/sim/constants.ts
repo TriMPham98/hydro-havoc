@@ -29,8 +29,10 @@ export const MINE_RADIUS = 3.4;
 export const MINE_ARM = 0.7;
 export const CHECKPOINT_COUNT = 8;
 export const LAP_COUNT = 3;
-export const AI_COUNT = 3;
+export const AI_COUNT = 5;
 export const RUBBER_BAND = 0.14;
+/** Lost-control window after a mine, ram, or hard bank. */
+export const WIPEOUT_TIME = 1.2;
 export const LATERAL_PAD = 1.15;
 /** Scales yaw + slip from stick/keys. 1 is the original cabinet lock. */
 export const STEER_GAIN = 0.75;

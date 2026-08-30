@@ -1,5 +1,6 @@
 import type { BoatDef, BoatId } from "../data/boats";
 import { boatById } from "../data/boats";
+import { WIPEOUT_TIME } from "./constants";
 
 export interface Boat {
   id: string;
@@ -46,6 +47,8 @@ export interface Boat {
   camShake: number;
   place: number;
   color: number;
+  /** Seconds of lost control remaining. */
+  wipeout: number;
 }
 
 export function createBoat(id: string, defId: BoatId, ai: boolean): Boat {
@@ -93,7 +96,21 @@ export function createBoat(id: string, defId: BoatId, ai: boolean): Boat {
     camShake: 0,
     place: 1,
     color: def.color,
+    wipeout: 0,
   };
+}
+
+/** Spin-out: ignore throttle/steer/boost until the timer expires. */
+export function enterWipeout(boat: Boat, seconds = WIPEOUT_TIME): void {
+  if (seconds <= 0) return;
+  boat.wipeout = Math.max(boat.wipeout, seconds);
+  boat.throttle = 0;
+  boat.steer = 0;
+  boat.brake = 0;
+  boat.boostHeld = false;
+  boat.camShake = Math.max(boat.camShake, 0.58);
+  boat.airborne = true;
+  if (boat.vy < 8) boat.vy = Math.max(boat.vy, 7);
 }
 
 export function headingVector(yaw: number): { x: number; z: number } {

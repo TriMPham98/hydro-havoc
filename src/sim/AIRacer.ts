@@ -1,6 +1,7 @@
+import type { BoatId } from "../data/boats";
 import type { Boat } from "./Boat";
 import type { TrackWorld } from "./Track";
-import { RUBBER_BAND } from "./constants";
+import { AI_COUNT, RUBBER_BAND } from "./constants";
 import { clamp, wrapAngle } from "./math";
 
 export type AIStyle = "race" | "demo";
@@ -55,7 +56,7 @@ export function driveAI(
     driveDemo(boat, track, pack);
     return;
   }
-  if (!racing || boat.finished) {
+  if (!racing || boat.finished || boat.wipeout > 0) {
     boat.throttle = 0;
     boat.steer = 0;
     boat.brake = 0;
@@ -108,8 +109,10 @@ export function driveAI(
   boat.steer = clamp(err * 1.55, -1, 1);
 
   const behind = player.courseT + player.lap - (boat.courseT + boat.lap);
+  const packN = Math.max(2, pack.length);
+  const packEase = packN > 4 ? 0.88 : 1;
   let band = 0;
-  if (behind > 0.005) band = clamp(behind * 2.5, 0, RUBBER_BAND);
+  if (behind > 0.005) band = clamp(behind * 2.5, 0, RUBBER_BAND) * packEase;
   else if (behind < -0.08) band = clamp(behind * 1.4, -RUBBER_BAND, 0);
   if (role.greedy && bend < 0.18 && behind > -0.12) band = Math.max(band, 0);
 
@@ -156,10 +159,11 @@ function driveDemo(boat: Boat, track: TrackWorld, pack: Boat[]): void {
   boat.boostHeld = false;
 }
 
-export function assignAIBoats(playerId: string): Array<"skimmer" | "ironwake" | "vesper"> {
-  const all: Array<"skimmer" | "ironwake" | "vesper"> = ["skimmer", "ironwake", "vesper"];
+export function assignAIBoats(playerId: string): BoatId[] {
+  const all: BoatId[] = ["skimmer", "ironwake", "vesper"];
   const rest = all.filter((id) => id !== playerId);
-  const out: Array<"skimmer" | "ironwake" | "vesper"> = [];
-  for (let i = 0; i < 3; i++) out.push(rest[i % rest.length] ?? "skimmer");
+  const cycle: BoatId[] = rest.length ? [...rest, playerId as BoatId] : all;
+  const out: BoatId[] = [];
+  for (let i = 0; i < AI_COUNT; i++) out.push(cycle[i % cycle.length] ?? "skimmer");
   return out;
 }

@@ -162,7 +162,7 @@ export function respawnPose(track: TrackWorld, checkpoint: number): { x: number;
 export function gridPose(track: TrackWorld, slot: number): { x: number; y: number; z: number; yaw: number; t: number } {
   const row = Math.floor(slot / 2);
   const side = slot % 2 === 0 ? -5.0 : 5.0;
-  const spacing = 12;
+  const spacing = 13.2;
   const frontT = 0.042;
   const t = wrap01(frontT - (row * spacing) / track.main.totalLength);
   const f = track.main.getFrameAtT(t);

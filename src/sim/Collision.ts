@@ -1,6 +1,6 @@
 import { RAM_BOOST, RAM_COOLDOWN, RAM_SPEED_DELTA } from "./constants";
 import type { Boat } from "./Boat";
-import { headingVector } from "./Boat";
+import { enterWipeout, headingVector } from "./Boat";
 import { addNormalBoost, boostLive } from "./BoostSystem";
 
 export interface RamEvent {
@@ -155,6 +155,7 @@ export function resolveHulls(boats: Boat[], now: number): RamEvent[] {
           defender.speed = Math.hypot(defender.vx, defender.vz);
           defender.camShake = 0.5;
           attacker.camShake = 0.25;
+          enterWipeout(defender);
           addNormalBoost(attacker, RAM_BOOST);
           events.push({ attacker, defender, awarded: true });
         }
