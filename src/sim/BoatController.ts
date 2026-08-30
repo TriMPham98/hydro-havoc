@@ -28,9 +28,9 @@ export interface ControllerResult {
 
 function steerCurve(speed: number, maxSpeed: number): number {
   const n = speed / Math.max(maxSpeed, 1);
-  if (n < 0.12) return 0.32 + n * 3.1;
-  if (n < 0.58) return 0.78;
-  return lerp(0.78, 0.5, (n - 0.58) / 0.42);
+  if (n < 0.12) return 0.42 + n * 4.2;
+  if (n < 0.58) return 1.06;
+  return lerp(1.06, 0.7, (n - 0.58) / 0.42);
 }
 
 export function stepBoat(
@@ -89,19 +89,20 @@ export function stepBoat(
     const accel = def.accel * (spend.usingBoost ? 1.55 : 1) * (spend.usingSuper ? 1.25 : 1);
     if (boat.throttle > 0) boat.speed += accel * boat.throttle * dt;
     if (boat.brake > 0) boat.speed -= (accel * 1.35 + 18) * boat.brake * dt;
-    const drag = (spend.usingBoost ? 0.38 : 0.55) + boat.speed * (spend.usingBoost ? 0.007 : 0.012);
-    boat.speed -= drag * boat.speed * dt;
+    // Quadratic drag sized so full throttle holds this hull's maxSpeed (and boost cap).
+    const dragK = accel / Math.max(maxSpeed * maxSpeed, 1);
+    boat.speed -= dragK * boat.speed * boat.speed * dt;
     if (boat.throttle < 0.05 && boat.brake < 0.05) boat.speed -= 8 * dt;
     boat.speed = clamp(boat.speed, 0, maxSpeed);
     const turn = def.turnRate * steerCurve(boat.speed, def.maxSpeed) * boat.steer * STEER_GAIN;
     boat.yaw += turn * dt;
-    const slip = boat.speed * (0.85 / def.grip) * boat.steer * STEER_GAIN;
-    boat.vx = fwd.x * boat.speed + rightX * slip * 1.7;
-    boat.vz = fwd.z * boat.speed + rightZ * slip * 1.7;
+    const slip = boat.speed * (1.15 / def.grip) * boat.steer * STEER_GAIN;
+    boat.vx = fwd.x * boat.speed + rightX * slip * 2.4;
+    boat.vz = fwd.z * boat.speed + rightZ * slip * 2.4;
   } else {
     if (spend.usingBoost) {
       boat.speed = Math.min(maxSpeed, boat.speed + def.accel * 0.45 * dt);
-      boat.yaw += def.turnRate * 0.28 * boat.steer * STEER_GAIN * dt;
+      boat.yaw += def.turnRate * 0.38 * boat.steer * STEER_GAIN * dt;
     }
     const air = headingVector(boat.yaw);
     boat.vx = air.x * boat.speed;

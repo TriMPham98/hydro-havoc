@@ -68,18 +68,20 @@ export class CameraRig {
   private chaseTarget(boat: Boat, boosting: boolean, superBoost: boolean, track?: TrackWorld): void {
     const speedK = Math.min(1, boat.speed / 32);
     const hull = boat.def.hullLength;
-    const back = hull * 0.42 + 9.2 + (1 - speedK) * 3.6 + (superBoost ? 1.1 : boosting ? 0.45 : 0);
-    const height = 4.6 + hull * 0.08 + (1 - speedK) * 1.15 + boat.speed * 0.006 + (boat.airborne ? 0.35 : 0);
+    const back = hull * 0.42 + 9.2 + (1 - speedK) * 1.4 + (superBoost ? 1.1 : boosting ? 0.45 : 0);
+    const height = 4.6 + hull * 0.08 + (1 - speedK) * 0.55 + boat.speed * 0.006 + (boat.airborne ? 0.35 : 0);
     const fwd = headingVector(this.yaw);
     let x = boat.x - fwd.x * back;
     let z = boat.z - fwd.z * back;
     if (track) {
       const q = queryCourse(track, boat.x, boat.y, boat.z, boat.courseT);
-      x -= q.frame.rx * q.lateral * 0.7;
-      z -= q.frame.rz * q.lateral * 0.7;
+      const pull = 0.7 * speedK;
+      x -= q.frame.rx * q.lateral * pull;
+      z -= q.frame.rz * q.lateral * pull;
     }
     this.desired.set(x, this.rideY + height, z);
-    this.lookWant.set(boat.x + fwd.x * 14, this.rideY + 1.05, boat.z + fwd.z * 14);
+    const lookAhead = 5.5 + 8.5 * speedK;
+    this.lookWant.set(boat.x + fwd.x * lookAhead, this.rideY + 1.05, boat.z + fwd.z * lookAhead);
   }
 
   showcase(boat: Boat, _time: number, dt: number): void {
