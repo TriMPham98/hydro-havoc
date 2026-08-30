@@ -10,6 +10,7 @@ Run:
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import math
 import struct
@@ -19,7 +20,7 @@ from pathlib import Path
 
 import bpy
 import bmesh
-from mathutils import Vector, Matrix, Color
+from mathutils import Vector, Matrix, Color, Euler
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -550,6 +551,14 @@ def make_materials(cfg: "BoatCfg"):
         emission=(0.05, 1.0, 0.25, 1),
         emission_strength=6.0,
     )
+    heat = principled(
+        f"{cfg.id}_HeatTint",
+        color=(0.28, 0.11, 0.05, 1),
+        metallic=1.0,
+        roughness=0.22,
+        coat=0.35,
+        coat_rough=0.18,
+    )
     return {
         "paint": paint,
         "accent": accent,
@@ -561,6 +570,7 @@ def make_materials(cfg: "BoatCfg"):
         "glow": glow,
         "nav_port": light_r,
         "nav_stbd": light_g,
+        "heat": heat,
     }
 
 
@@ -641,9 +651,9 @@ def boats():
             canopy_z=0.66,
             canopy_s=(0.36, 0.50, 0.24),
             wing_span=2.08,
-            wing_z=0.98,
-            wing_f=-2.18,
-            wing_chord=0.30,
+            wing_z=0.82,
+            wing_f=-2.22,
+            wing_chord=0.32,
             pickle=0.98,
             ram_nose=False,
             spike=False,
@@ -679,10 +689,10 @@ def boats():
             canopy_f=0.82,
             canopy_z=0.76,
             canopy_s=(0.40, 0.46, 0.30),
-            wing_span=2.78,
-            wing_z=1.46,
-            wing_f=-2.42,
-            wing_chord=0.50,
+            wing_span=2.62,
+            wing_z=1.12,
+            wing_f=-2.48,
+            wing_chord=0.48,
             pickle=0.92,
             ram_nose=True,
             spike=False,
@@ -718,10 +728,10 @@ def boats():
             canopy_f=0.62,
             canopy_z=0.60,
             canopy_s=(0.24, 0.88, 0.18),
-            wing_span=1.88,
-            wing_z=1.32,
-            wing_f=-2.78,
-            wing_chord=0.26,
+            wing_span=1.72,
+            wing_z=0.72,
+            wing_f=-3.12,
+            wing_chord=0.28,
             pickle=1.32,
             ram_nose=False,
             spike=True,
@@ -914,54 +924,38 @@ def make_sponson(cfg: BoatCfg, side, mats, parent):
     pad = add_cube(
         f"KeelPad_{label}",
         (cfg.sponson_hw * (1.05 if cfg.style == "unlimited" else 0.88), pad_len, 0.016),
-        design_to_blender(side * cfg.sponson_cx, lerp(cfg.sponson_f0, cfg.sponson_f1, 0.34), 0.028),
+        design_to_blender(side * cfg.sponson_cx, lerp(cfg.sponson_f0, cfg.sponson_f1, 0.34), 0.010),
         parent=parent,
         mat=mats["gunmetal"],
     )
     shade_smooth(pad, 80)
 
     if cfg.ram_nose:
-        ram_x = side * cfg.sponson_cx * 1.08
-        ram_f = cfg.sponson_f1 + 0.08
-        ram_z = 0.15 + cfg.rake * 0.42
+        # Short ram cap seated in the sponson tip — not a chrome balloon.
         ram = add_cylinder(
             f"RamPlate_{label}",
-            cfg.sponson_hw * 0.58,
-            0.44,
-            design_to_blender(ram_x, ram_f, ram_z),
+            cfg.sponson_hw * 0.28,
+            0.16,
+            design_to_blender(side * cfg.sponson_cx * splay, f_bow + 0.02, z_tip + 0.02),
             parent=parent,
             mat=mats["gunmetal"],
             rot=(math.radians(90), 0, 0),
-            segs=12,
-            radius2=0.04,
+            segs=10,
+            radius2=cfg.sponson_hw * 0.12,
         )
-        shade_smooth(ram, 32)
-        add_subdiv(ram, 1, 1)
-        lip = add_cylinder(
-            f"RamLip_{label}",
-            cfg.sponson_hw * 0.42,
-            0.05,
-            design_to_blender(ram_x, ram_f + 0.20, ram_z),
-            parent=parent,
-            mat=mats["chrome"],
-            rot=(math.radians(90), 0, 0),
-            segs=12,
-            radius2=0.055,
-        )
-        shade_smooth(lip, 40)
+        shade_smooth(ram, 36)
     else:
-        # Accent pickle-fork cap so teal / magenta tines read at a glance.
-        cap_r = 0.055 if cfg.style == "cat" else 0.038
+        cap_r = 0.038 if cfg.style == "cat" else 0.024
         cap = add_cylinder(
             f"ForkTip_{label}",
             cap_r,
-            0.22 if cfg.style == "cat" else 0.28,
-            design_to_blender(side * cfg.sponson_cx * splay, f_bow + 0.10, z_tip + 0.02),
+            0.14 if cfg.style == "cat" else 0.16,
+            design_to_blender(side * cfg.sponson_cx * splay, f_bow + 0.02, z_tip),
             parent=parent,
-            mat=mats["accent"],
+            mat=mats["paint"],
             rot=(math.radians(90), 0, 0),
             segs=8,
-            radius2=0.012,
+            radius2=0.008,
         )
         shade_smooth(cap, 30)
 
@@ -995,8 +989,8 @@ def make_sponson(cfg: BoatCfg, side, mats, parent):
 
     chev = add_cube(
         f"Chevron_{label}",
-        (cfg.sponson_hw * (0.55 if cfg.style == "unlimited" else 0.38), 0.52, 0.016),
-        design_to_blender(side * cfg.sponson_cx, lerp(cfg.sponson_f0, cfg.sponson_f1, 0.48), cfg.deck_z + 0.02),
+        (cfg.sponson_hw * (0.55 if cfg.style == "unlimited" else 0.38), 0.52, 0.010),
+        design_to_blender(side * cfg.sponson_cx, lerp(cfg.sponson_f0, cfg.sponson_f1, 0.48), cfg.deck_z + 0.004),
         parent=parent,
         mat=mats["accent"],
     )
@@ -1137,7 +1131,7 @@ def make_tunnel_deck(cfg: BoatCfg, mats, parent):
     add_cube(
         "CenterStripe",
         (stripe_w, stripe_len, 0.018),
-        design_to_blender(0, (f0 + f1) * 0.5 - 0.08, z_top + 0.035),
+        design_to_blender(0, (f0 + f1) * 0.5 - 0.08, z_top + 0.008),
         parent=parent,
         mat=mats["accent"],
     )
@@ -1206,14 +1200,25 @@ def make_cowling(cfg: BoatCfg, mats, parent):
                     parent=parent,
                     mat=mats["cabin"],
                 )
-        # Neck between forward cockpit bubble and aft engine.
-        add_cube(
+        # Turtle-deck saddle so the tub and engine read as one painted volume.
+        neck = add_cube(
             "CockpitNeck",
-            (0.34, 0.55, 0.14),
-            design_to_blender(0.0, 0.48, cfg.deck_z + 0.12),
+            (0.70, 1.15, 0.32),
+            design_to_blender(0.0, 0.50, cfg.deck_z + 0.20),
             parent=parent,
             mat=mats["paint"],
         )
+        shade_smooth(neck, 36)
+        add_subdiv(neck, 1, 2)
+        bulk = add_cube(
+            "EngineBulkhead",
+            (0.82, 0.20, 0.30),
+            design_to_blender(0.0, cfg.cowling_f1 + 0.02, cfg.deck_z + 0.22),
+            parent=parent,
+            mat=mats["paint"],
+        )
+        shade_smooth(bulk, 36)
+        add_subdiv(bulk, 1, 1)
     return obj
 
 
@@ -1222,9 +1227,9 @@ def make_canopy(cfg: BoatCfg, mats, parent):
     sx, sy, sz = cfg.canopy_s
     n_stat, segs = 10, 12
     if cfg.style == "unlimited":
-        z0 = cfg.deck_z + 0.06
+        z0 = cfg.deck_z + 0.02
     else:
-        z0 = cfg.deck_z + cfg.cowling_h * 0.38
+        z0 = cfg.deck_z + cfg.cowling_h * 0.12
     rings = []
     for i in range(n_stat):
         u = i / (n_stat - 1)
@@ -1334,6 +1339,50 @@ def naca_section(chord, thick, n=10):
     return upper + lower
 
 
+def loft_prop_blade(
+    name,
+    parent,
+    mat,
+    blade_ang,
+    span,
+    hub_r,
+    chord_root,
+    chord_tip,
+    thick,
+    pitch_root,
+    pitch_tip,
+    rake,
+):
+    """Twisted, raked hydroplane blade. Parent is the propeller empty (Y = shaft/stern)."""
+    n_span = 7
+    rings = []
+    section_n = 8
+    for i in range(n_span):
+        u = i / (n_span - 1)
+        radius = lerp(hub_r * 1.08, span, u ** 0.82)
+        chord = lerp(chord_root, chord_tip, u ** 1.1)
+        th = thick * (1.0 - 0.48 * u)
+        pitch = lerp(pitch_root, pitch_tip, u)
+        rake_y = rake * (u ** 1.25)
+        section = naca_section(chord, th, n=section_n)
+        ring = []
+        for cx, cz in section:
+            # Chord along -Y (into the inflow), thickness up, then pitch around span.
+            p = Vector((0.0, -cx + chord * 0.28, cz))
+            p.rotate(Euler((pitch, 0.0, 0.0), "XYZ"))
+            p.x += radius
+            p.y += rake_y
+            p.rotate(Euler((0.0, blade_ang, 0.0), "XYZ"))
+            ring.append(p)
+        rings.append(ring)
+    mesh = loft_quads(name, rings, cap_start=True, cap_end=True)
+    crease_by_angle(mesh, 55)
+    obj = new_mesh_obj(name, mesh, parent=parent, mat=mat)
+    shade_smooth(obj, 28)
+    add_subdiv(obj, 1, 1)
+    return obj
+
+
 def make_wing(cfg: BoatCfg, mats, parent):
     thick = 0.11 if cfg.style == "needle" else 0.13 if cfg.style == "cat" else 0.15
     section = naca_section(cfg.wing_chord, cfg.wing_chord * thick, n=9)
@@ -1366,46 +1415,78 @@ def make_wing(cfg: BoatCfg, mats, parent):
     shade_smooth(obj, 35)
     add_subdiv(obj, 1, 1)
 
-    ep_h = 0.12 if cfg.style == "needle" else 0.15 if cfg.style == "cat" else 0.22
-    ep_t = 0.022 if cfg.style == "needle" else 0.028 if cfg.style == "cat" else 0.038
+    # Vertical fences that sit in the wing tip, not hanging flag cubes.
+    ep_h = 0.13 if cfg.style == "needle" else 0.18 if cfg.style == "cat" else 0.24
+    ep_t = 0.012 if cfg.style == "needle" else 0.016
     for side in (-1, 1):
         ep = add_cube(
             f"Endplate_{'R' if side > 0 else 'L'}",
-            (ep_t, cfg.wing_chord * (1.02 if cfg.style != "unlimited" else 1.18), ep_h),
-            design_to_blender(side * cfg.wing_span * 0.5, cfg.wing_f - cfg.wing_chord * 0.45, cfg.wing_z - 0.02),
+            (ep_t, cfg.wing_chord * 0.98, ep_h),
+            design_to_blender(side * cfg.wing_span * 0.50, cfg.wing_f - cfg.wing_chord * 0.48, cfg.wing_z),
             parent=parent,
-            mat=mats["accent"],
+            mat=mats["cabin"],
         )
         shade_smooth(ep, 60)
 
-    z0 = cfg.deck_z + 0.05
-    z1 = cfg.wing_z - 0.04
-    depth = abs(z1 - z0)
+    z0 = cfg.deck_z + 0.02
+    z1 = cfg.wing_z - 0.02
+    depth = max(0.08, abs(z1 - z0))
     if cfg.style == "needle":
-        # Single central pylon — twitchy needle silhouette from astern.
         strut = add_cube(
             "WingPylon",
-            (0.022, cfg.wing_chord * 0.38, depth),
-            design_to_blender(0.0, cfg.wing_f + 0.04, (z0 + z1) * 0.5),
+            (0.070, cfg.wing_chord * 0.72, depth),
+            design_to_blender(0.0, cfg.wing_f + 0.02, (z0 + z1) * 0.5),
             parent=parent,
-            mat=mats["chrome"],
+            mat=mats["gunmetal"],
         )
         shade_smooth(strut, 40)
         add_subdiv(strut, 1, 1)
+        foot = add_cube(
+            "WingPylonFoot",
+            (0.20, cfg.wing_chord * 0.88, 0.050),
+            design_to_blender(0.0, cfg.wing_f + 0.02, z0 + 0.012),
+            parent=parent,
+            mat=mats["gunmetal"],
+        )
+        shade_smooth(foot, 50)
+        cap = add_cube(
+            "WingPylonCap",
+            (0.12, cfg.wing_chord * 0.62, 0.036),
+            design_to_blender(0.0, cfg.wing_f - cfg.wing_chord * 0.12, z1),
+            parent=parent,
+            mat=mats["gunmetal"],
+        )
+        shade_smooth(cap, 50)
     else:
-        r = 0.022 if cfg.style == "cat" else 0.038
-        for si, side in enumerate((-1, 1)):
-            x = side * cfg.after_hw * (0.38 if cfg.style == "cat" else 0.48)
+        r = 0.036 if cfg.style == "cat" else 0.052
+        for side in (-1, 1):
+            x = side * cfg.after_hw * (0.38 if cfg.style == "cat" else 0.42)
             strut = add_cylinder(
                 f"WingStrut_{'R' if side > 0 else 'L'}",
                 r,
                 depth,
-                design_to_blender(x, cfg.wing_f + 0.08, (z0 + z1) * 0.5),
+                design_to_blender(x, cfg.wing_f + 0.06, (z0 + z1) * 0.5),
                 parent=parent,
                 mat=mats["chrome"],
                 segs=10,
             )
             shade_smooth(strut, 50)
+            pad = add_cube(
+                f"WingStrutFoot_{'R' if side > 0 else 'L'}",
+                (0.16, 0.18, 0.042),
+                design_to_blender(x, cfg.wing_f + 0.06, z0 + 0.012),
+                parent=parent,
+                mat=mats["gunmetal"],
+            )
+            shade_smooth(pad, 55)
+            head = add_cube(
+                f"WingStrutHead_{'R' if side > 0 else 'L'}",
+                (0.10, 0.12, 0.032),
+                design_to_blender(x, cfg.wing_f + 0.02, z1),
+                parent=parent,
+                mat=mats["gunmetal"],
+            )
+            shade_smooth(head, 55)
         if cfg.style == "unlimited":
             stay = add_cylinder(
                 "WingStay",
@@ -1435,14 +1516,14 @@ def make_intake(cfg: BoatCfg, mats, parent):
         add_subdiv(scoop, 1, 1)
         mouth = add_cylinder(
             "IntakeMouth",
-            cfg.cowling_w * 0.12,
+            cfg.cowling_w * 0.11,
             0.05,
-            design_to_blender(0.0, cfg.cowling_f1 + 0.12, cfg.deck_z + cfg.cowling_h + 0.06),
+            design_to_blender(0.0, cfg.cowling_f1 - 0.02, cfg.deck_z + cfg.cowling_h + 0.04),
             parent=parent,
             mat=mats["chrome"],
             rot=(math.radians(90), 0, 0),
             segs=12,
-            radius2=cfg.cowling_w * 0.16,
+            radius2=cfg.cowling_w * 0.14,
         )
         shade_smooth(mouth, 40)
         return
@@ -1487,61 +1568,97 @@ def make_hardware(cfg: BoatCfg, mats, parent):
     box = add_cube(
         "Gearbox",
         box_s,
-        design_to_blender(0.0, transom_f - 0.18, box_z),
+        design_to_blender(0.0, transom_f + 0.06, box_z),
         parent=parent,
         mat=mats["gunmetal"],
     )
     shade_smooth(box, 50)
     add_subdiv(box, 1, 1)
 
-    shaft_len = 0.72 if cfg.style == "needle" else 0.88 if cfg.style == "unlimited" else 0.80
+    shaft_len = 0.52 if cfg.style == "needle" else 0.58 if cfg.style == "unlimited" else 0.54
     add_cylinder(
         "PropShaft",
         0.024 if cfg.style == "needle" else 0.032,
         shaft_len,
-        design_to_blender(0.0, transom_f - shaft_len * 0.62, 0.11),
+        design_to_blender(0.0, transom_f - shaft_len * 0.38, 0.10),
         parent=parent,
         mat=mats["chrome"],
         rot=(math.radians(90), 0, 0),
         segs=12,
     )
+    # Continuous skeg from transom to the hub so the shaft isn't a floating stick.
+    skeg_len = shaft_len * 0.92
+    skeg = add_cube(
+        "ShaftSkeg",
+        (0.030 if cfg.style == "needle" else 0.038, skeg_len, 0.20),
+        design_to_blender(0.0, transom_f - skeg_len * 0.36, 0.03),
+        parent=parent,
+        mat=mats["gunmetal"],
+    )
+    shade_smooth(skeg, 50)
 
     # Shaft is along Blender Y (boat length). Blades radiate in XZ.
     prop_f = transom_f - shaft_len * 0.95
     prop_root = new_empty("propeller", 0.15)
     prop_root.parent = parent
     prop_root.location = design_to_blender(0.0, prop_f, 0.11)
-    hub_r = 0.056 if cfg.style == "unlimited" else 0.040 if cfg.style == "needle" else 0.048
+    if cfg.style == "unlimited":
+        hub_r, hub_d, span, c0, c1, thick, p0, p1, rake, n_blades = (
+            0.058, 0.16, 0.50, 0.168, 0.078, 0.22, math.radians(30), math.radians(18), 0.11, 3,
+        )
+    elif cfg.style == "needle":
+        hub_r, hub_d, span, c0, c1, thick, p0, p1, rake, n_blades = (
+            0.038, 0.11, 0.30, 0.095, 0.042, 0.16, math.radians(34), math.radians(22), 0.13, 3,
+        )
+    else:
+        hub_r, hub_d, span, c0, c1, thick, p0, p1, rake, n_blades = (
+            0.046, 0.12, 0.38, 0.125, 0.058, 0.18, math.radians(32), math.radians(20), 0.08, 3,
+        )
     hub = add_cylinder(
         "PropHub",
         hub_r,
-        0.12 if cfg.style != "unlimited" else 0.16,
+        hub_d,
         (0, 0, 0),
         parent=prop_root,
         mat=mats["chrome"],
         rot=(math.radians(90), 0, 0),
-        segs=14,
+        segs=16,
     )
-    shade_smooth(hub, 30)
-    blade_span = 0.46 if cfg.style == "unlimited" else 0.30 if cfg.style == "needle" else 0.38
-    for i in range(3):
-        ang = i * (2.0 * math.pi / 3.0)
-        blade = add_cube(
+    shade_smooth(hub, 28)
+    spinner = add_cylinder(
+        "PropSpinner",
+        hub_r * 0.92,
+        hub_d * 0.85,
+        (0.0, -hub_d * 0.42, 0.0),
+        parent=prop_root,
+        mat=mats["accent"],
+        rot=(math.radians(90), 0, 0),
+        segs=14,
+        radius2=0.006,
+    )
+    shade_smooth(spinner, 24)
+    add_subdiv(spinner, 1, 1)
+    for i in range(n_blades):
+        ang = i * (2.0 * math.pi / n_blades)
+        loft_prop_blade(
             f"PropBlade_{i}",
-            (blade_span, 0.012, 0.11 if cfg.style != "needle" else 0.08),
-            (0.0, 0.0, 0.0),
-            parent=prop_root,
-            mat=mats["chrome"],
+            prop_root,
+            mats["chrome"],
+            ang,
+            span,
+            hub_r,
+            c0,
+            c1,
+            thick,
+            p0,
+            p1,
+            rake,
         )
-        blade.rotation_euler = (math.radians(22), ang, 0.0)
-        ca, sa = math.cos(ang), math.sin(ang)
-        blade.location = Vector((sa * blade_span * 0.52, 0.0, ca * blade_span * 0.52))
-        shade_smooth(blade, 35)
 
     rudder = add_cube(
         "Rudder",
-        (0.026 if cfg.style == "needle" else 0.034, 0.16 if cfg.style == "needle" else 0.20, 0.28 if cfg.style == "needle" else 0.34),
-        design_to_blender(0.0, prop_f - 0.28, 0.02),
+        (0.026 if cfg.style == "needle" else 0.034, 0.14 if cfg.style == "needle" else 0.16, 0.26 if cfg.style == "needle" else 0.30),
+        design_to_blender(0.0, prop_f - 0.10, 0.04),
         parent=parent,
         mat=mats["gunmetal"],
     )
@@ -1564,42 +1681,19 @@ def make_hardware(cfg: BoatCfg, mats, parent):
     fin_f = lerp(cfg.sponson_f0, cfg.sponson_f1, 0.18 if cfg.style == "unlimited" else 0.24)
     fin = add_cube(
         "SkidFin",
-        (0.018, 0.42 * fin_scale, 0.40 * fin_scale),
-        design_to_blender(fin_x, fin_f, -0.02),
+        (0.018, 0.42 * fin_scale, 0.36 * fin_scale),
+        design_to_blender(fin_x, fin_f, 0.04),
         parent=parent,
         mat=mats["gunmetal"],
     )
     shade_smooth(fin, 50)
-
-    if cfg.style == "unlimited":
-        xs, r1, r2, length, z_ex = [0.0], 0.11, 0.14, 0.72, 0.44
-    elif cfg.style == "needle":
-        xs, r1, r2, length, z_ex = [-0.14, 0.14], 0.042, 0.055, 0.48, 0.32
-    else:
-        xs, r1, r2, length, z_ex = [-0.28, 0.28], 0.062, 0.078, 0.50, 0.36
-    for i, x in enumerate(xs):
-        pipe = add_cylinder(
-            f"Exhaust_{i}",
-            r1,
-            length,
-            design_to_blender(x, transom_f - 0.10, z_ex),
-            parent=parent,
-            mat=mats["chrome"],
-            rot=(math.radians(90 if cfg.style != "unlimited" else 78), 0, 0),
-            segs=14,
-            radius2=r2,
-        )
-        shade_smooth(pipe, 30)
-        add_cylinder(
-            f"ExhaustInner_{i}",
-            r1 * 0.68,
-            0.10,
-            design_to_blender(x, transom_f - length * 0.72, z_ex + (0.08 if cfg.style == "unlimited" else 0.0)),
-            parent=parent,
-            mat=mats["cabin"],
-            rot=(math.radians(90 if cfg.style != "unlimited" else 78), 0, 0),
-            segs=12,
-        )
+    add_cube(
+        "SkidFinRoot",
+        (0.06, 0.18 * fin_scale, 0.04),
+        design_to_blender(fin_x, fin_f, cfg.sponson_h * 0.12),
+        parent=parent,
+        mat=mats["gunmetal"],
+    )
 
     make_intake(cfg, mats, parent)
 
@@ -1607,8 +1701,8 @@ def make_hardware(cfg: BoatCfg, mats, parent):
     light_f = lerp(cfg.sponson_f0, cfg.sponson_f1, 0.62)
     add_uvsphere(
         "NavPort",
-        0.035,
-        design_to_blender(-cfg.sponson_cx - cfg.sponson_hw * 0.7, light_f, cfg.deck_z + 0.02),
+        0.028,
+        design_to_blender(-cfg.sponson_cx - cfg.sponson_hw * 0.35, light_f, cfg.deck_z + 0.03),
         parent=parent,
         mat=mats["nav_port"],
         segs=12,
@@ -1616,8 +1710,8 @@ def make_hardware(cfg: BoatCfg, mats, parent):
     )
     add_uvsphere(
         "NavStbd",
-        0.035,
-        design_to_blender(cfg.sponson_cx + cfg.sponson_hw * 0.7, light_f, cfg.deck_z + 0.02),
+        0.028,
+        design_to_blender(cfg.sponson_cx + cfg.sponson_hw * 0.35, light_f, cfg.deck_z + 0.03),
         parent=parent,
         mat=mats["nav_stbd"],
         segs=12,
@@ -1635,12 +1729,18 @@ def make_hardware(cfg: BoatCfg, mats, parent):
             mat=mats["chrome"],
         )
 
-    # antenna
+    add_cube(
+        "AntennaBase",
+        (0.04, 0.04, 0.016),
+        design_to_blender(0.10, cfg.canopy_f - 0.22, cfg.deck_z + cfg.cowling_h + 0.02),
+        parent=parent,
+        mat=mats["gunmetal"],
+    )
     add_cylinder(
         "Antenna",
-        0.008,
-        0.48 if cfg.style != "needle" else 0.62,
-        design_to_blender(0.12, cfg.canopy_f - 0.35, cfg.canopy_z + 0.35),
+        0.007,
+        0.32 if cfg.style != "needle" else 0.38,
+        design_to_blender(0.10, cfg.canopy_f - 0.22, cfg.deck_z + cfg.cowling_h + 0.18),
         parent=parent,
         mat=mats["chrome"],
         segs=8,
@@ -1658,29 +1758,370 @@ def make_hardware(cfg: BoatCfg, mats, parent):
         shade_smooth(dorsal, 50)
 
 
-def make_fx_anchors(cfg: BoatCfg, mats, parent):
-    transom_f = cfg.after_f0
-    turbine = new_empty("turbine", 0.2)
-    turbine.parent = parent
-    turbine.location = design_to_blender(0.0, transom_f, 0.42)
+def _jet_specs(cfg: BoatCfg):
+    """Per-hull Hydro Thunder jet layout: (x, z, radius, length, n_petals)."""
+    if cfg.style == "unlimited":
+        return [(0.0, 0.50, 0.148, 0.68, 8)]
+    if cfg.style == "needle":
+        return [(-0.155, 0.30, 0.052, 0.42, 6), (0.155, 0.30, 0.052, 0.42, 6)]
+    return [(-0.30, 0.34, 0.072, 0.48, 6), (0.30, 0.34, 0.072, 0.48, 6)]
 
-    bm = bmesh.new()
-    bmesh.ops.create_cone(
-        bm, cap_ends=True, cap_tris=False, segments=10, radius1=0.16, radius2=0.02, depth=0.9
+
+def _orient_petal(ang):
+    """Local X = radial (starboard/up plane), Y = jet/stern, Z = tangent."""
+    radial = Vector((math.cos(ang), 0.0, math.sin(ang)))
+    jet = Vector((0.0, 1.0, 0.0))
+    tangent = jet.cross(radial)
+    if tangent.length < 1e-8:
+        tangent = Vector((0.0, 0.0, 1.0))
+    else:
+        tangent.normalize()
+    m = Matrix(
+        (
+            (radial.x, jet.x, tangent.x),
+            (radial.y, jet.y, tangent.y),
+            (radial.z, jet.z, tangent.z),
+        )
     )
-    glow_mesh = bpy.data.meshes.new("turbineGlow")
-    bm.to_mesh(glow_mesh)
-    bm.free()
-    glow = new_mesh_obj("turbineGlow", glow_mesh, parent=parent, mat=mats["glow"])
-    glow.location = design_to_blender(0.0, transom_f - 0.55, 0.38)
-    glow.rotation_euler = (math.radians(90), 0, 0)
-    # start hidden-ish; game drives opacity
-    glow.scale = Vector((0.25, 0.25, 0.25))
-    try:
-        glow.visible_shadow = False
-    except Exception:
-        pass
-    return turbine, glow
+    return m.to_euler("XYZ")
+
+
+def _jet_stow_euler(cfg: BoatCfg, x: float):
+    """Fold the can up against the transom (Blender +X), under the rear wing."""
+    if cfg.style == "unlimited":
+        return (math.radians(55.0), 0.0, 0.0)
+    if cfg.style == "needle":
+        splay = math.radians(12.0)
+        yaw = -splay if x > 0 else splay
+        return (math.radians(52.0), 0.0, yaw)
+    return (math.radians(58.0), 0.0, 0.0)
+
+
+def make_jet(cfg: BoatCfg, mats, parent):
+    """Transom hinge booster. Stowed JetSled is folded up at the transom lip.
+
+    Pickup: runtime slerps JetSled toward JetSledOut (aft, identity rot) after
+    the bay doors open. Moving hardware is parented to the sled.
+    """
+    transom_f = cfg.after_f0
+    specs = _jet_specs(cfg)
+    dual = len(specs) > 1
+    lock = 0.26 if cfg.style == "unlimited" else 0.20 if cfg.style == "needle" else 0.22
+
+    grate_w = 0.42 if cfg.style == "needle" else 0.70 if cfg.style == "cat" else 0.55
+    grate = add_cube(
+        "JetIntake",
+        (cfg.after_hw * grate_w, 0.28, 0.014),
+        design_to_blender(0.0, transom_f + 0.38, 0.038),
+        parent=parent,
+        mat=mats["gunmetal"],
+    )
+    shade_smooth(grate, 80)
+    for k in range(4):
+        add_cube(
+            f"JetIntakeBar_{k}",
+            (cfg.after_hw * grate_w * 0.92, 0.012, 0.01),
+            design_to_blender(0.0, transom_f + 0.26 + k * 0.06, 0.046),
+            parent=parent,
+            mat=mats["chrome"],
+        )
+
+    primary = None
+    for i, (x, z, r, length, n_petals) in enumerate(specs):
+        suf = f"_{i}" if dual else ""
+        y_can = length * 0.38
+        y_exit = length * 0.78
+        y_fan = length * 0.62
+        sled_f = transom_f + 0.04
+        fold = _jet_stow_euler(cfg, x)
+
+        bay = add_cylinder(
+            f"JetBay{suf}",
+            r * 1.28,
+            0.16,
+            design_to_blender(x, transom_f + 0.04, z),
+            parent=parent,
+            mat=mats["gunmetal"],
+            rot=(math.radians(90), 0, 0),
+            segs=16,
+            radius2=r * 1.18,
+        )
+        shade_smooth(bay, 32)
+        collar = add_cylinder(
+            f"JetCollar{suf}",
+            r * 1.32,
+            0.048,
+            design_to_blender(x, transom_f - 0.01, z),
+            parent=parent,
+            mat=mats["chrome"],
+            rot=(math.radians(90), 0, 0),
+            segs=16,
+        )
+        shade_smooth(collar, 40)
+
+        # Pivot barrel along starboard (Blender +X) plus short hinge arms.
+        knuckle = add_cylinder(
+            f"JetHinge{suf}",
+            r * 0.30,
+            r * 1.70,
+            design_to_blender(x, transom_f, z),
+            parent=parent,
+            mat=mats["chrome"],
+            rot=(0.0, math.radians(90), 0.0),
+            segs=12,
+        )
+        shade_smooth(knuckle, 36)
+        for side in (-1, 1):
+            ear = add_cube(
+                f"JetHingeEar{suf}_{'R' if side > 0 else 'L'}",
+                (0.024, 0.090, 0.058),
+                design_to_blender(x + side * r * 0.92, transom_f + 0.02, z),
+                parent=parent,
+                mat=mats["gunmetal"],
+            )
+            shade_smooth(ear, 55)
+            arm = add_cube(
+                f"JetRail{suf}_{'R' if side > 0 else 'L'}",
+                (0.016, 0.10, 0.022),
+                design_to_blender(x + side * (r * 1.18), transom_f + 0.03, z),
+                parent=parent,
+                mat=mats["chrome"],
+            )
+            shade_smooth(arm, 55)
+
+        # Blast doors — closed over the bay; runtime hinges them with deploy.
+        for di, dang in enumerate((-1, 1)):
+            door = add_cube(
+                f"JetDoor{suf}_{di}",
+                (r * 1.35, 0.028, r * 1.15),
+                design_to_blender(x, transom_f - 0.04, z + dang * r * 0.12),
+                parent=parent,
+                mat=mats["cabin"],
+            )
+            door.rotation_euler = (dang * math.radians(10), 0.0, 0.0)
+            shade_smooth(door, 40)
+
+        sled = new_empty(f"JetSled{suf}", 0.18)
+        sled.parent = parent
+        sled.location = design_to_blender(x, sled_f, z)
+        sled.rotation_euler = fold
+        out = new_empty(f"JetSledOut{suf}", 0.12)
+        out.parent = parent
+        out.location = design_to_blender(x, transom_f - lock, z)
+        out.rotation_euler = (0.0, 0.0, 0.0)
+
+        housing = add_cylinder(
+            f"JetHousing{suf}",
+            r * 1.08,
+            length,
+            (0.0, y_can, 0.0),
+            parent=sled,
+            mat=mats["gunmetal"],
+            rot=(math.radians(90), 0, 0),
+            segs=18,
+            radius2=r * 0.94,
+        )
+        shade_smooth(housing, 28)
+        add_subdiv(housing, 1, 1)
+        horn = add_cube(
+            f"JetHingeHorn{suf}",
+            (r * 1.20, 0.055, 0.042),
+            (0.0, 0.018, 0.0),
+            parent=sled,
+            mat=mats["gunmetal"],
+        )
+        shade_smooth(horn, 50)
+
+        bell = add_cylinder(
+            f"JetBell{suf}",
+            r * 0.90,
+            r * 0.62,
+            (0.0, y_exit, 0.0),
+            parent=sled,
+            mat=mats["heat"],
+            rot=(math.radians(90), 0, 0),
+            segs=16,
+            radius2=r * 1.26,
+        )
+        shade_smooth(bell, 22)
+        add_subdiv(bell, 1, 1)
+
+        liner = add_cylinder(
+            f"JetLiner{suf}",
+            r * 0.70,
+            0.10,
+            (0.0, y_exit + 0.02, 0.0),
+            parent=sled,
+            mat=mats["cabin"],
+            rot=(math.radians(90), 0, 0),
+            segs=14,
+            radius2=r * 0.58,
+        )
+        shade_smooth(liner, 40)
+
+        core = add_cylinder(
+            f"JetCore{suf}",
+            r * 0.32,
+            0.12,
+            (0.0, y_exit + 0.04, 0.0),
+            parent=sled,
+            mat=mats["glow"],
+            rot=(math.radians(90), 0, 0),
+            segs=10,
+        )
+        try:
+            core.visible_shadow = False
+        except Exception:
+            pass
+
+        for v in range(5):
+            va = v * (2.0 * math.pi / 5.0)
+            vane = add_cube(
+                f"JetStator{suf}_{v}",
+                (0.01, 0.07, r * 0.52),
+                (math.cos(va) * r * 0.36, y_fan - 0.04, math.sin(va) * r * 0.36),
+                parent=sled,
+                mat=mats["heat"],
+            )
+            vane.rotation_euler = _orient_petal(va)
+
+        fan = new_empty(f"TurbineFan{suf}", 0.12)
+        fan.parent = sled
+        fan.location = Vector((0.0, y_fan, 0.0))
+        hub = add_cylinder(
+            f"TurbineHub{suf}",
+            r * 0.22,
+            0.08,
+            (0.0, 0.0, 0.0),
+            parent=fan,
+            mat=mats["chrome"],
+            rot=(math.radians(90), 0, 0),
+            segs=12,
+        )
+        shade_smooth(hub, 30)
+        n_blades = 7
+        for b in range(n_blades):
+            ba = b * (2.0 * math.pi / n_blades)
+            blade = add_cube(
+                f"TurbineBlade{suf}_{b}",
+                (r * 0.78, 0.008, r * 0.16),
+                (math.cos(ba) * r * 0.40, 0.0, math.sin(ba) * r * 0.40),
+                parent=fan,
+                mat=mats["chrome"],
+            )
+            blade.rotation_euler = (math.radians(16), ba, 0.0)
+            shade_smooth(blade, 40)
+        spinner = add_cylinder(
+            f"TurbineSpinner{suf}",
+            r * 0.16,
+            0.09,
+            (0.0, -0.04, 0.0),
+            parent=fan,
+            mat=mats["accent"],
+            rot=(math.radians(90), 0, 0),
+            segs=10,
+            radius2=0.008,
+        )
+        shade_smooth(spinner, 28)
+
+        petal_len = 0.09 if cfg.style != "unlimited" else 0.12
+        petal_w = r * 0.42
+        for p in range(n_petals):
+            ang = p * (2.0 * math.pi / n_petals)
+            petal = add_cube(
+                f"JetPetal{suf}_{p}",
+                (0.014 if cfg.style != "unlimited" else 0.018, petal_len, petal_w),
+                (math.cos(ang) * r * 1.08, y_exit + petal_len * 0.2, math.sin(ang) * r * 1.08),
+                parent=sled,
+                mat=mats["chrome"],
+            )
+            petal.rotation_euler = _orient_petal(ang)
+            shade_smooth(petal, 50)
+
+        sock_name = f"turbine{suf}" if dual else "turbine"
+        sock = new_empty(sock_name, 0.16)
+        sock.parent = sled
+        sock.location = Vector((0.0, y_exit + 0.06, 0.0))
+        if i == 0:
+            primary = sock
+            if dual:
+                alias = new_empty("turbine", 0.14)
+                alias.parent = sled
+                alias.location = Vector((0.0, y_exit + 0.06, 0.0))
+
+        glow_name = "turbineGlow" if i == 0 else f"turbineGlow_{i}"
+        bm = bmesh.new()
+        bmesh.ops.create_cone(
+            bm,
+            cap_ends=False,
+            cap_tris=False,
+            segments=12,
+            radius1=r * 1.05,
+            radius2=r * 0.08,
+            depth=0.95 if cfg.style != "unlimited" else 1.25,
+        )
+        glow_mesh = bpy.data.meshes.new(glow_name)
+        bm.to_mesh(glow_mesh)
+        bm.free()
+        glow = new_mesh_obj(glow_name, glow_mesh, parent=sled, mat=mats["glow"])
+        glow.location = Vector((0.0, y_exit + 0.55, 0.0))
+        glow.rotation_euler = (math.radians(90), 0, 0)
+        glow.scale = Vector((0.22, 0.22, 0.22))
+        glow.hide_render = True
+        try:
+            glow.visible_shadow = False
+        except Exception:
+            pass
+
+    return primary
+
+
+def detail_api():
+    return {
+        "add_cube": add_cube,
+        "add_cylinder": add_cylinder,
+        "add_uvsphere": add_uvsphere,
+        "add_ico": add_ico,
+        "add_subdiv": add_subdiv,
+        "shade_smooth": shade_smooth,
+        "design_to_blender": design_to_blender,
+        "new_empty": new_empty,
+        "new_mesh_obj": new_mesh_obj,
+        "loft_quads": loft_quads,
+        "loft_prop_blade": loft_prop_blade,
+        "naca_section": naca_section,
+        "bm_to_obj": bm_to_obj,
+        "crease_by_angle": crease_by_angle,
+        "recalc_normals": recalc_normals,
+        "math": math,
+        "Vector": Vector,
+        "Matrix": Matrix,
+        "bmesh": bmesh,
+        "bpy": bpy,
+        "lerp": lerp,
+        "smooth": smooth,
+        "smoother": smoother,
+        "clamp": clamp,
+    }
+
+
+def load_module(stem: str):
+    path = Path(__file__).resolve().parent / f"{stem}.py"
+    if not path.exists():
+        return None
+    spec = importlib.util.spec_from_file_location(f"hydro_{stem}", path)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def load_detail(boat_id: str):
+    return load_module(f"detail_{boat_id}")
+
+
+def load_boost(boat_id: str):
+    return load_module(f"boost_{boat_id}")
 
 
 def make_spike(cfg: BoatCfg, mats, parent):
@@ -1820,11 +2261,17 @@ def build_boat(cfg: BoatCfg, parent_name=None):
     make_canopy(cfg, mats, root)
     make_wing(cfg, mats, root)
     make_hardware(cfg, mats, root)
-    make_fx_anchors(cfg, mats, root)
+    make_jet(cfg, mats, root)
     make_spike(cfg, mats, root)
     make_numbers(cfg, mats, root)
     make_fasteners(cfg, mats, root)
     make_markers(cfg, root)
+    detail = load_detail(cfg.id)
+    if detail and hasattr(detail, "add_details"):
+        detail.add_details(cfg, mats, root, detail_api())
+    boost = load_boost(cfg.id)
+    if boost and hasattr(boost, "add_boost_mech"):
+        boost.add_boost_mech(cfg, mats, root, detail_api())
     return root
 
 
@@ -2064,6 +2511,22 @@ def inspect_glb(path: Path):
     for need in (
         "turbine",
         "turbineGlow",
+        "TurbineFan",
+        "TurbineFan_0",
+        "JetPetal_0",
+        "JetPetal_0_0",
+        "JetHousing",
+        "JetHousing_0",
+        "JetSled",
+        "JetSled_0",
+        "JetSledOut",
+        "JetSledOut_0",
+        "JetBay",
+        "JetBay_0",
+        "JetDoor_0",
+        "JetDoor_0_0",
+        "PropBlade_0",
+        "PropSpinner",
         "bowMarker",
         "sternMarker",
         "starboardMarker",
@@ -2192,7 +2655,7 @@ def main():
     for cfg in cfgs:
         log("====", cfg.id, cfg.name, cfg.style)
         build_one(cfg)
-    if want is None:
+    if want is None and not skip_render:
         log("==== fleet")
         build_fleet(boats())
     log("done")

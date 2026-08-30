@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildRiptideRefinery } from "../../data/tracks/riptideRefinery";
-import { gridPose, queryCourse, resolveBank, respawnPose, showcasePose } from "../Track";
+import { attractPose, gridPose, queryCourse, resolveBank, respawnPose, showcasePose } from "../Track";
 import { hullOverlap, pairKey, resolveHulls, resetRamTable } from "../Collision";
 import { createBoat } from "../Boat";
 import { wrapAngle } from "../math";
@@ -98,6 +98,20 @@ describe("track", () => {
       prev = f;
     }
     expect(maxJump).toBeLessThan(0.55);
+  });
+
+  it("puts attract wingmen ahead of the camera host", () => {
+    const track = buildRiptideRefinery();
+    const host = attractPose(track, 0);
+    const port = attractPose(track, 1);
+    const stbd = attractPose(track, 2);
+    expect(port.t).toBeGreaterThan(host.t);
+    expect(stbd.t).toBeGreaterThan(host.t);
+    expect(Math.hypot(port.x - stbd.x, port.z - stbd.z)).toBeGreaterThan(8);
+    for (const pose of [host, port, stbd]) {
+      const q = queryCourse(track, pose.x, pose.y, pose.z, pose.t);
+      expect(q.onRibbon).toBe(true);
+    }
   });
 
   it("parks the hull-select pose in the canal center", () => {

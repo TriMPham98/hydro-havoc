@@ -1,6 +1,6 @@
 import { CRATE_RADIUS, MINE_ARM, MINE_RADIUS, PICKUP_RADIUS } from "./constants";
 import type { Boat } from "./Boat";
-import { addNormalBoost, collectPickup } from "./BoostSystem";
+import { addNormalBoost, collectPickup, igniteJet } from "./BoostSystem";
 import type { TrackWorld } from "./Track";
 
 export interface PickupEvent {
@@ -41,6 +41,7 @@ export function stepPickups(track: TrackWorld, boats: Boat[], dt: number, now: n
         crate.taken = 18;
         if (crate.kind === "boost") {
           addNormalBoost(boat, 1.2);
+          igniteJet(boat);
           events.push({ kind: "crate-boost", x: crate.x, y: crate.y, z: crate.z, boat });
         } else {
           track.mines.push({

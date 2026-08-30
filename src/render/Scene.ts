@@ -9,6 +9,7 @@ import { queryCourse, type TrackWorld } from "../sim/Track";
 import { gerstnerHeight } from "../sim/waterHeight";
 import { BOATS } from "../data/boats";
 import { applyHullHeat, createBoatMesh, getBoatTemplate, preloadBoatMeshes } from "./BoatMesh";
+import { updateJet } from "./JetBoost";
 import { CameraRig, type CameraMode } from "./CameraRig";
 import { ContactField } from "./Contact";
 import { Fx } from "./Fx";
@@ -268,6 +269,11 @@ export class GameRenderer {
     this.fx.slam(x, y, z);
   }
 
+  igniteJet(boat: Boat): void {
+    this.fx.jetBurst(boat);
+    this.hitPunch(boat.superBoostRemaining > 0 ? 0.5 : 0.3);
+  }
+
   bankSpray(x: number, y: number, z: number): void {
     this.fx.bankSpray(x, y, z);
   }
@@ -303,7 +309,7 @@ export class GameRenderer {
     this.fx.rebuildPickups(track);
   }
 
-  syncBoats(boats: Boat[], time = 0): void {
+  syncBoats(boats: Boat[], time = 0, dt = 1 / 60): void {
     const seen = new Set<string>();
     for (const boat of boats) {
       seen.add(boat.id);
@@ -325,16 +331,19 @@ export class GameRenderer {
       mesh.position.set(boat.x, boat.y, boat.z);
       mesh.rotation.set(boat.pitch, boat.yaw, boat.roll);
       const hot = boat.boostHeld && (boat.boostFuel > 0 || boat.superBoostRemaining > 0);
-      const turbine = mesh.getObjectByName("turbine");
-      if (turbine) turbine.scale.setScalar(hot ? 1.28 : 1);
-      const glow = mesh.getObjectByName("turbineGlow") as THREE.Mesh | undefined;
-      if (glow) {
-        glow.scale.set(hot ? 0.7 : 0.2, hot ? 1.1 : 0.2, hot ? 0.7 : 0.2);
-        const gm = glow.material as THREE.MeshBasicMaterial;
-        gm.opacity = hot ? (boat.superBoostRemaining > 0 ? 0.35 : 0.22) : 0;
-        gm.color.set(boat.superBoostRemaining > 0 && hot ? 0xffe14a : 0x7af0ff);
-      }
-      applyHullHeat(mesh, hot ? (boat.superBoostRemaining > 0 ? 1 : 0.6) : 0);
+      const hasFuel = boat.boostFuel > 0 || boat.superBoostRemaining > 0;
+      const superOn = boat.superBoostRemaining > 0 && (hot || boat.jetIgnite > 0.02);
+      updateJet(mesh, {
+        boosting: hot,
+        superOn,
+        ignite: boat.jetIgnite,
+        hasFuel,
+        speed: boat.speed,
+        dt,
+        time,
+      });
+      const heat = superOn ? 1 : hot ? 0.6 : boat.jetIgnite > 0 ? Math.min(1, 0.35 + boat.jetIgnite) : 0;
+      applyHullHeat(mesh, heat);
     }
     for (const [id, mesh] of this.boats) {
       if (!seen.has(id)) {
@@ -358,17 +367,19 @@ export class GameRenderer {
       mat.uniforms.uTime.value = time;
       mat.uniforms.uCam.value.copy(camPos);
     }
-    const boosting = !!player && player.boostHeld && (player.boostFuel > 0 || player.superBoostRemaining > 0);
-    const superOn = !!player && player.superBoostRemaining > 0 && player.boostHeld;
+    const firing = !!player && player.boostHeld && (player.boostFuel > 0 || player.superBoostRemaining > 0);
+    const igniting = !!player && player.jetIgnite > 0.02;
+    const boosting = firing || igniting;
+    const superOn = !!player && player.superBoostRemaining > 0 && (firing || igniting);
     this.fx.update(track, boats, dt, time, boosting);
-    this.syncBoats(boats, time);
+    this.syncBoats(boats, time, dt);
     this.contacts.sync(boats, time);
     if (player) {
       this.followSun(player);
       this.tintWorld(player.courseT, boosting, superOn);
       if (cam === "showcase") this.camera.showcase(player, time, dt);
       else if (cam === "finish") this.camera.finish(player, dt, track);
-      else this.camera.follow(player, dt, boosting, superOn, track);
+      else this.camera.follow(player, dt, boosting, superOn, track, cam === "attract");
       this.sky.position.copy(this.camera.camera.position);
       if (this.quality !== "low" && !(cam === "showcase" && this.cubeCaptured)) {
         this.cubeTick++;

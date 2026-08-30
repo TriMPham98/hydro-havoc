@@ -10,7 +10,10 @@ Parametric pickle-fork hydroplanes built in Blender 5.1 for Skimmer, Ironwake, a
 | `hydro_fleet.blend` | All three hulls side by side. |
 | `previews/` | Studio stills (3/4, side, front, rear, top). |
 | `../../public/boats/*.glb` | Game-ready GLB (Y-up, **+Z bow**, +X starboard). |
-| `../../tools/blender/build_boats.py` | Generator. |
+| `../../tools/blender/build_boats.py` | Generator (hulls + Hydro Thunder jets). |
+| `../../tools/blender/detail_skimmer.py` | Skimmer greebles. |
+| `../../tools/blender/detail_ironwake.py` | Ironwake greebles. |
+| `../../tools/blender/detail_vesper.py` | Vesper greebles. |
 
 ## Regenerate
 
@@ -34,10 +37,18 @@ One hull only:
 
 glTF export uses `export_yup=True`, so the GLB the game loads is **+Z bow, +Y up**.
 
-Named empties the runtime expects:
+Named sockets the runtime expects:
 
-- `turbine`
-- `turbineGlow`
+- `turbine` — primary transom jet origin (centroid if dual)
+- `turbine_0` / `turbine_1` — per-nozzle origins on dual-jet hulls
+- `turbineGlow` (+ `turbineGlow_1`) — fallback cone, opacity driven in-game
+- `TurbineFan` / `TurbineFan_0` — compressor, spun on boost / pickup ignite
+- `JetPetal_*` — nozzle petals, flare open when the jet lights
+- `JetSled` / `JetSled_0` — hinged booster; rest pose is folded at the transom, `JetSledOut` is the firing pose
+- `JetDoor_*` — bay doors that hinge open before the can drops aft
+- `propeller` / `PropBlade_*` — lofted hydro blades, spin with speed
+
+Pickup ignite (Hydro Thunder): collecting blue/red/super or a boost crate opens the bay doors, hinges the booster out of the transom, spools the fan, and flashes a water-jet plume once the nozzle points aft. While fuel remains the sled stays deployed; empty fuel retracts it.
 
 ## Hull language
 

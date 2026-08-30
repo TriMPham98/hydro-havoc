@@ -42,6 +42,7 @@ export function stepBoat(
   locked: boolean,
 ): ControllerResult {
   boat.time += dt;
+  if (boat.jetIgnite > 0) boat.jetIgnite = Math.max(0, boat.jetIgnite - dt);
   const result: ControllerResult = {
     bankHit: false,
     landed: false,

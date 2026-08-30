@@ -198,6 +198,30 @@ export function clampToCanal(
   };
 }
 
+/**
+ * Title attract pack. Slot 0 is the camera host at the back; 1 and 2 sit
+ * ahead port/starboard so the chase cam actually sees all three hulls.
+ */
+export function attractPose(
+  track: TrackWorld,
+  slot: number,
+): { x: number; y: number; z: number; yaw: number; t: number } {
+  const hostT = 0.085;
+  const ahead = slot === 0 ? 0 : 18;
+  const lat = slot === 0 ? 0 : slot === 1 ? -7.2 : 7.2;
+  const t = wrap01(hostT + ahead / track.main.totalLength);
+  const f = track.main.getFrameAtT(t);
+  const maxLat = Math.max(2.6, f.width * 0.5 - 5.0);
+  const side = clamp(lat, -maxLat, maxLat);
+  return {
+    x: f.x + f.rx * side,
+    y: f.y + 1.05,
+    z: f.z + f.rz * side,
+    yaw: Math.atan2(f.tx, f.tz),
+    t,
+  };
+}
+
 /** Center of a wide harbor straight — hull select, not the start grid. */
 export function showcasePose(track: TrackWorld): { x: number; y: number; z: number; yaw: number; t: number } {
   const f = track.main.getFrameAtT(0.06);

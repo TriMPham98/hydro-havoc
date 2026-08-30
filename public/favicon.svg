@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Hydro Havoc">
+  <rect width="32" height="32" rx="7" fill="#041018"/>
+  <rect x="1.1" y="1.1" width="29.8" height="29.8" rx="6.2" fill="none" stroke="#2ee6ff" stroke-opacity="0.35" stroke-width="0.9"/>
+  <!-- pickle-fork hydro, bow up -->
+  <path fill="#1bb8c9" d="
+    M10.4 3.8
+    L8.2 5.8
+    L7.3 8.4
+    L7.1 14.2
+    L7.3 22.2
+    L8.2 25.2
+    L11.1 26.3
+    L20.9 26.3
+    L23.8 25.2
+    L24.7 22.2
+    L24.9 14.2
+    L24.7 8.4
+    L23.8 5.8
+    L21.6 3.8
+    L19.8 3.8
+    L19.1 5.6
+    L18.9 8.6
+    Q16 11.6 13.1 8.6
+    L12.9 5.6
+    L12.2 3.8
+    Z"/>
+  <path fill="#2ee6ff" d="
+    M15.2 11.4
+    L16.8 11.4
+    L16.8 24.6
+    L15.2 24.6
+    Z"/>
+  <ellipse cx="16" cy="14.1" rx="2.35" ry="3.35" fill="#08222a"/>
+  <ellipse cx="16" cy="13.3" rx="1.45" ry="1.85" fill="#2ee6ff" fill-opacity="0.45"/>
+  <path fill="#08222a" d="M6.4 24.55 H25.6 L25.1 26.15 H6.9 Z"/>
+  <path fill="#e7fbff" fill-opacity="0.85" d="M7.1 24.55 H8.05 L7.7 26.15 H6.9 Z"/>
+  <path fill="#e7fbff" fill-opacity="0.85" d="M23.95 24.55 H24.9 L25.1 26.15 H24.3 Z"/>
+</svg>

@@ -1,4 +1,4 @@
-import type { BoatId } from "../data/boats";
+import { BOATS, type BoatId } from "../data/boats";
 import { buildCourse, type CourseId } from "../data/tracks/catalog";
 import { rollCrateKinds } from "../data/tracks/riptideRefinery";
 import { GameAudio } from "../audio/Audio";
@@ -10,6 +10,7 @@ import { assignAIBoats, driveAI } from "../sim/AIRacer";
 import { stepBoat } from "../sim/BoatController";
 import { resetRamTable, resolveHulls } from "../sim/Collision";
 import { AI_COUNT, FIXED_DT, MAX_FRAME_DT } from "../sim/constants";
+import { igniteJet } from "../sim/BoostSystem";
 import { lerp } from "../sim/math";
 import { stepPickups } from "../sim/Pickups";
 import {
@@ -19,7 +20,7 @@ import {
   stepDirector,
   type RaceDirector,
 } from "../sim/RaceDirector";
-import { gridPose, showcasePose } from "../sim/Track";
+import { attractPose, gridPose, showcasePose } from "../sim/Track";
 import { placeBoats } from "../sim/progress";
 import type { TrackWorld } from "../sim/Track";
 import { Overlay } from "../ui/overlay";
@@ -48,6 +49,7 @@ export class Game {
   private playerBoat: BoatId = "skimmer";
   private courseId: CourseId = "riptide";
   private visualCourse: CourseId | null = null;
+  private lastAttractBeat = -1;
 
   constructor(canvas: HTMLCanvasElement, root: HTMLElement) {
     this.overlay = new Overlay(root);
@@ -110,6 +112,7 @@ export class Game {
   }
 
   private camMode(): CameraMode {
+    if (this.mode === "title") return "attract";
     if (this.mode === "select") return "showcase";
     if (this.mode === "race" && this.director.phase === "closing") return "finish";
     if (this.mode === "results") return "finish";
@@ -153,21 +156,25 @@ export class Game {
 
   private spawnIdle(): void {
     this.bindCourse();
-    this.player = createBoat("player", this.playerBoat, false);
     if (this.mode === "select") {
+      this.player = createBoat("player", this.playerBoat, false);
       this.parkShowcase();
       this.boats = [this.player];
       this.director = createDirector();
       this.renderer.camera.snapShowcase(this.player);
       return;
     }
-    const aiIds = assignAIBoats(this.playerBoat);
+    const hulls: BoatId[] = [
+      this.playerBoat,
+      ...BOATS.map((b) => b.id).filter((id) => id !== this.playerBoat),
+    ];
+    this.player = createBoat("player", hulls[0] ?? "skimmer", false);
     this.boats = [this.player];
-    for (let i = 0; i < AI_COUNT; i++) {
-      this.boats.push(createBoat(`ai${i}`, aiIds[i % aiIds.length] ?? "skimmer", true));
+    for (let i = 1; i < hulls.length; i++) {
+      this.boats.push(createBoat(`ai${i - 1}`, hulls[i] ?? "skimmer", true));
     }
     this.boats.forEach((boat, i) => {
-      const pose = gridPose(this.track, i);
+      const pose = attractPose(this.track, i);
       copyPose(boat, pose);
       boat.courseT = pose.t;
       boat.speed = 22;
@@ -177,6 +184,7 @@ export class Game {
       boat.throttle = 0.8;
     });
     this.director = createDirector();
+    this.lastAttractBeat = -1;
     this.renderer.camera.reset();
   }
 
@@ -319,7 +327,10 @@ export class Game {
             if (e.boat === this.player) this.overlay.flashHit("MINE");
           } else {
             this.audio.pickup(e.kind);
-            if (e.boat === this.player) this.overlay.flashHit(e.kind === "super" ? "SUPER" : "BOOST");
+            if (e.boat === this.player) {
+              this.overlay.flashHit(e.kind === "super" ? "SUPER" : "BOOST");
+              this.renderer.igniteJet(e.boat);
+            }
           }
         }
       }
@@ -370,6 +381,15 @@ export class Game {
       for (const boat of this.boats) {
         driveAI(boat, this.track, this.player, true, this.boats, "demo");
         stepBoat(boat, this.track, dt, 0, false);
+      }
+      const beat = Math.floor(this.time / 2.15);
+      if (beat !== this.lastAttractBeat && this.boats.length) {
+        this.lastAttractBeat = beat;
+        const boat = this.boats[beat % this.boats.length];
+        if (boat) {
+          igniteJet(boat);
+          this.renderer.igniteJet(boat);
+        }
       }
     } else if (this.mode === "select") {
       this.parkShowcase();

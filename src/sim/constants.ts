@@ -9,6 +9,8 @@ export const BOOST_CAP = 5;
 export const BLUE_BOOST = 1.5;
 export const RED_BOOST = 3;
 export const SUPER_DURATION = 2;
+/** Pickup spool-up window. Visual slam is instant; this is how long the overshoot holds. */
+export const JET_IGNITE = 0.55;
 export const RAM_BOOST = 1;
 export const JUMP_COST = 0.35;
 export const JUMP_WINDOW = 0.18;

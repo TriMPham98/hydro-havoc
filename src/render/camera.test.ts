@@ -5,6 +5,32 @@ import { buildRiptideRefinery } from "../data/tracks/riptideRefinery";
 import { gridPose } from "../sim/Track";
 import { CameraRig } from "./CameraRig";
 
+describe("showcase orbit", () => {
+  it("circles the hull, including a transom view from ahead", () => {
+    const boat = createBoat("p", "skimmer", false);
+    boat.x = 0;
+    boat.y = 1;
+    boat.z = 0;
+    boat.yaw = 0;
+    const rig = new CameraRig(16 / 9);
+    rig.snapShowcase(boat);
+    const fwd = headingVector(boat.yaw);
+    let minAlong = Infinity;
+    let maxAlong = -Infinity;
+    const dt = 1 / 60;
+    const period = (Math.PI * 2) / 0.38;
+    for (let t = 0; t < period + 0.5; t += dt) {
+      rig.showcase(boat, t, dt);
+      const along =
+        (boat.x - rig.camera.position.x) * fwd.x + (boat.z - rig.camera.position.z) * fwd.z;
+      minAlong = Math.min(minAlong, along);
+      maxAlong = Math.max(maxAlong, along);
+    }
+    expect(maxAlong).toBeGreaterThan(8);
+    expect(minAlong).toBeLessThan(-8);
+  });
+});
+
 describe("chase camera", () => {
   it("sits behind the grid hull, not the canal center, during countdown", () => {
     const track = buildRiptideRefinery();
@@ -25,5 +51,25 @@ describe("chase camera", () => {
     const side = toBoatX * fwd.z + toBoatZ * -fwd.x;
     expect(along).toBeGreaterThan(8);
     expect(Math.abs(side)).toBeLessThan(0.45);
+  });
+
+  it("pulls back further in attract so a three-hull pack fits", () => {
+    const track = buildRiptideRefinery();
+    const pose = gridPose(track, 0);
+    const boat = createBoat("p", "skimmer", false);
+    boat.x = pose.x;
+    boat.y = pose.y;
+    boat.z = pose.z;
+    boat.yaw = pose.yaw;
+    boat.courseT = pose.t;
+    const chase = new CameraRig(16 / 9);
+    chase.snap(boat, track, false);
+    const wide = new CameraRig(16 / 9);
+    wide.snap(boat, track, true);
+    const fwd = headingVector(boat.yaw);
+    const along = (b: CameraRig) =>
+      (boat.x - b.camera.position.x) * fwd.x + (boat.z - b.camera.position.z) * fwd.z;
+    expect(along(wide)).toBeGreaterThan(along(chase) + 6);
+    expect(wide.camera.position.y).toBeGreaterThan(chase.camera.position.y + 1.5);
   });
 });

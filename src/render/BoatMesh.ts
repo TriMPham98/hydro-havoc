@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { BoatDef } from "../data/boats";
+import { addProceduralJet, bindJet } from "./JetBoost";
 
 function planform(len: number, width: number): THREE.Shape {
   const hw = width * 0.5;
@@ -137,6 +138,7 @@ export function createProceduralBoatMesh(def: BoatDef): THREE.Group {
   dummy.name = "turbine";
   dummy.position.set(0, 0.42, -transom);
   g.add(dummy);
+  addProceduralJet(g, def);
 
   if (def.id === "ironwake") {
     for (const x of [-def.hullWidth * 0.55, def.hullWidth * 0.55]) {
@@ -163,6 +165,7 @@ export function createProceduralBoatMesh(def: BoatDef): THREE.Group {
   g.userData.procedural = true;
   g.userData.hullId = def.id;
   finishWetHull(g, def);
+  bindJet(g, def);
   return g;
 }
 
@@ -178,6 +181,7 @@ export const BOAT_GLB_URL: Record<BoatDef["id"], string> = {
 };
 
 const HIDDEN_HELPERS = new Set(["bowMarker", "sternMarker", "starboardMarker"]);
+const HIDDEN_PREFIX = /^JetSledOut/;
 
 const LOWER_HULL = new Set([
   "Sponson_L",
@@ -190,10 +194,14 @@ const LOWER_HULL = new Set([
   "RamPlate_R",
   "TransomPlate",
   "SkidFin",
+  "SkidFinRoot",
+  "ShaftSkeg",
   "Rudder",
 ]);
 
-const WET_SKIP = new Set(["turbineGlow", "waterline", "chineSprayL", "chineSprayR"]);
+const WET_SKIP = new Set(["turbineGlow", "waterline", "chineSprayL", "chineSprayR", "JetCore"]);
+
+const ANIMATED_PREFIX = /^(JetPetal|TurbineFan|TurbineBlade|TurbineHub|TurbineSpinner|JetCore|turbineGlow|jetPlume|jetCore|jetWash|jetFlash|jetLight|PropBlade|PropHub|PropSpinner|JetDoor|JetSled)/;
 
 const MERGE_KEEP = new Set<string>([
   "turbine",
@@ -343,7 +351,8 @@ function bindHullHeat(root: THREE.Group, def: BoatDef): void {
     if (
       WET_SKIP.has(obj.name) ||
       mat.transparent ||
-      /Glass|Glow|NavPort|NavStbd/i.test(mat.name)
+      /Glass|Glow|NavPort|NavStbd|HeatTint/i.test(mat.name) ||
+      ANIMATED_PREFIX.test(obj.name)
     ) {
       remap.set(mat, mat);
       return mat;
@@ -436,6 +445,15 @@ function geometriesForMerge(meshes: THREE.Mesh[], rootInv: THREE.Matrix4): THREE
   return out;
 }
 
+function underAnimatedParent(obj: THREE.Object3D): boolean {
+  let p: THREE.Object3D | null = obj.parent;
+  while (p) {
+    if (/^JetSled(?:_\d+)?$/.test(p.name) || p.name === "propeller" || /^TurbineFan/.test(p.name)) return true;
+    p = p.parent;
+  }
+  return false;
+}
+
 export function mergeMeshesByMaterial(root: THREE.Object3D): void {
   if (root.userData.mergedByMaterial) return;
   root.updateMatrixWorld(true);
@@ -443,7 +461,14 @@ export function mergeMeshesByMaterial(root: THREE.Object3D): void {
   const buckets = new Map<string, { material: THREE.Material; meshes: THREE.Mesh[] }>();
   root.traverse((obj) => {
     if (!(obj instanceof THREE.Mesh) || obj instanceof THREE.InstancedMesh) return;
-    if (MERGE_KEEP.has(obj.name) || Array.isArray(obj.material) || !obj.geometry) return;
+    if (
+      MERGE_KEEP.has(obj.name) ||
+      ANIMATED_PREFIX.test(obj.name) ||
+      underAnimatedParent(obj) ||
+      Array.isArray(obj.material) ||
+      !obj.geometry
+    )
+      return;
     const material = obj.material as THREE.Material;
     let bucket = buckets.get(material.uuid);
     if (!bucket) {
@@ -479,7 +504,7 @@ export function mergeMeshesByMaterial(root: THREE.Object3D): void {
 
 function wireLoadedBoat(root: THREE.Group, def: BoatDef): void {
   root.traverse((obj) => {
-    if (HIDDEN_HELPERS.has(obj.name)) obj.visible = false;
+    if (HIDDEN_HELPERS.has(obj.name) || HIDDEN_PREFIX.test(obj.name)) obj.visible = false;
     if (obj instanceof THREE.Mesh) {
       obj.castShadow = true;
       obj.receiveShadow = true;
@@ -562,6 +587,7 @@ export function createBoatMesh(def: BoatDef): THREE.Group {
     wireLoadedBoat(clone, { ...def, hullLength: native.length, hullWidth: native.width });
     clone.scale.setScalar(visual);
     clone.userData.hullId = def.id;
+    bindJet(clone, def);
     return clone;
   }
   void loadBoatTemplate(def);

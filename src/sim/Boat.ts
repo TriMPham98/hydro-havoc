@@ -25,6 +25,8 @@ export interface Boat {
   boostFuel: number;
   superBoostRemaining: number;
   storedBoost: number;
+  /** Seconds left on the Hydro Thunder pickup ignite (petals + plume flash). */
+  jetIgnite: number;
   lastCheckpoint: number;
   courseT: number;
   lap: number;
@@ -68,6 +70,7 @@ export function createBoat(id: string, defId: BoatId, ai: boolean): Boat {
     boostFuel: 0,
     superBoostRemaining: 0,
     storedBoost: 0,
+    jetIgnite: 0,
     lastCheckpoint: 0,
     courseT: 0,
     lap: 0,

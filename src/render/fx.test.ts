@@ -47,5 +47,11 @@ describe("player spray sheets", () => {
     fx.slam(player.x, player.y, player.z);
     const ring = named(fx.group, "slamRing0");
     expect(ring.visible).toBe(true);
+
+    player.speed = 28;
+    player.onWater = true;
+    fx.jetBurst(player);
+    const trail = fx.group.getObjectByName("fxParticles")?.children.find((c) => c.type === "Points");
+    expect(trail).toBeTruthy();
   });
 });

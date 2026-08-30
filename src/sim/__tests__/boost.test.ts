@@ -7,7 +7,7 @@ import {
   collectPickup,
   spendBoost,
 } from "../BoostSystem";
-import { BOOST_CAP, SUPER_DURATION } from "../constants";
+import { BOOST_CAP, JET_IGNITE, SUPER_DURATION } from "../constants";
 import { buildRiptideRefinery } from "../../data/tracks/riptideRefinery";
 import { stepPickups } from "../Pickups";
 
@@ -56,6 +56,31 @@ describe("boost system", () => {
     const r = spendBoost(boat, 1);
     expect(r.usingBoost).toBe(false);
     expect(boat.boostFuel).toBe(2);
+  });
+
+  it("ignites the transom jet when a boost is picked up", () => {
+    const boat = createBoat("p", "skimmer", false);
+    collectPickup(boat, "blue");
+    expect(boat.jetIgnite).toBeCloseTo(JET_IGNITE);
+    const track = buildRiptideRefinery();
+    const start = track.main.getFrameAtT(0.05);
+    boat.x = start.x;
+    boat.y = start.y + 0.8;
+    boat.z = start.z;
+    boat.yaw = Math.atan2(start.tx, start.tz);
+    stepBoat(boat, track, 1 / 60, 0, false);
+    expect(boat.jetIgnite).toBeCloseTo(JET_IGNITE - 1 / 60);
+    boat.jetIgnite = 0.01;
+    stepBoat(boat, track, 1 / 60, 0.02, false);
+    expect(boat.jetIgnite).toBe(0);
+  });
+
+  it("ignites harder on super than on blue", () => {
+    const a = createBoat("a", "skimmer", false);
+    const b = createBoat("b", "vesper", false);
+    collectPickup(a, "blue");
+    collectPickup(b, "super");
+    expect(b.jetIgnite).toBeGreaterThan(a.jetIgnite);
   });
 
   it("kicks speed the frame boost is mashed", () => {

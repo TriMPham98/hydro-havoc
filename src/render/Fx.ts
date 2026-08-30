@@ -496,6 +496,24 @@ export class Fx {
     this.placeSheet(this.sheets[4], host, hullW * 0.4, fanAft, 0.18, fanWid, fanLen, 1.05, 0.35, wet * 0.7);
   }
 
+  jetBurst(boat: Boat): void {
+    const fwd = headingVector(boat.yaw);
+    const aft = boat.def.hullLength * 0.5;
+    const x = boat.x - fwd.x * aft;
+    const y = boat.y + 0.32;
+    const z = boat.z - fwd.z * aft;
+    this.burst(x, y, z, 64, 11, 16);
+    const pos = this.trail.geometry.getAttribute("position") as THREE.BufferAttribute;
+    for (let i = 0; i < 36; i++) {
+      const n = Math.floor(Math.random() * pos.count);
+      pos.setXYZ(n, x + (Math.random() - 0.5) * 0.8, y + Math.random() * 0.4, z + (Math.random() - 0.5) * 0.8);
+      this.trailVel[n * 3] = -fwd.x * (14 + Math.random() * 10) + (Math.random() - 0.5) * 4;
+      this.trailVel[n * 3 + 1] = 1 + Math.random() * 4;
+      this.trailVel[n * 3 + 2] = -fwd.z * (14 + Math.random() * 10) + (Math.random() - 0.5) * 4;
+    }
+    pos.needsUpdate = true;
+  }
+
   slam(x: number, y: number, z: number): void {
     this.burst(x, y, z, 72, 22, 18);
     const slot = this.slamRings.find((r) => r.life <= 0) ?? this.slamRings[0];
@@ -573,7 +591,16 @@ export class Fx {
     if (host && emitters.length) {
       this.stepCloud(this.spray, this.sprayVel, emitters, host, dt, 1, 2.8, 0.42);
       this.stepCloud(this.mist, this.mistVel, emitters, host, dt, 0.38, 6.4, 0.38);
-      this.stepCloud(this.trail, this.trailVel, emitters.filter((b) => b.boostHeld), host, dt, 0.28, 1.6, 0.55);
+      this.stepCloud(
+        this.trail,
+        this.trailVel,
+        emitters.filter((b) => b.boostHeld || b.jetIgnite > 0),
+        host,
+        dt,
+        0.28,
+        1.6,
+        0.55,
+      );
       const wet = host.onWater && host.speed > 5;
       this.sprayMat.uniforms.uOpacity.value = wet ? Math.min(0.7, 0.28 + host.speed / 62) : 0.04;
       this.sprayMat.uniforms.uSize.value = (boosting ? 72 : 58) + host.speed * 0.32;
