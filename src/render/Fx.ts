@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import type { Boat } from "../sim/Boat";
 import { headingVector } from "../sim/Boat";
-import type { TrackWorld } from "../sim/Track";
+import { CRUSHER_DURATION } from "../sim/constants";
+import type { CrateKind, TrackWorld } from "../sim/Track";
 
 const SPRAY_COUNT = 400;
 const MIST_COUNT = 64;
@@ -190,9 +191,9 @@ function beaconBuoy(kind: "blue" | "red" | "super"): THREE.Group {
   return g;
 }
 
-function scrapCrate(kind: "boost" | "mine"): THREE.Group {
+function scrapCrate(kind: CrateKind): THREE.Group {
   const g = new THREE.Group();
-  const rust = metal(kind === "mine" ? 0x5a2a12 : 0x8a6a22, 0.55, 0.48);
+  const rust = metal(kind === "crusher" ? 0x3a2a48 : kind === "mine" ? 0x5a2a12 : 0x8a6a22, 0.55, 0.48);
   const steel = metal(0x3d4750, 0.72, 0.3);
   g.add(new THREE.Mesh(new THREE.BoxGeometry(1.65, 1.45, 1.65), rust));
   const bandA = new THREE.Mesh(new THREE.BoxGeometry(1.74, 0.11, 1.74), steel);
@@ -208,7 +209,7 @@ function scrapCrate(kind: "boost" | "mine"): THREE.Group {
       g.add(cap);
     }
   }
-  const accent = kind === "mine" ? 0xff6a22 : 0x2ee6ff;
+  const accent = kind === "crusher" ? 0xff3d6e : kind === "mine" ? 0xff6a22 : 0x2ee6ff;
   const lamp = new THREE.Mesh(
     new THREE.BoxGeometry(0.5, 0.08, 0.5),
     new THREE.MeshStandardMaterial({ color: accent, emissive: accent, emissiveIntensity: 0.9, metalness: 0.25, roughness: 0.35 }),
@@ -216,6 +217,15 @@ function scrapCrate(kind: "boost" | "mine"): THREE.Group {
   lamp.position.y = 0.78;
   lamp.name = "crateLamp";
   g.add(lamp);
+  if (kind === "crusher") {
+    const halo = new THREE.Mesh(
+      new THREE.TorusGeometry(0.95, 0.07, 6, 14),
+      metal(0xff3d6e, 0.4, 0.35, 0xff3d6e, 0.85),
+    );
+    halo.rotation.x = Math.PI / 2;
+    halo.position.y = 0.18;
+    g.add(halo);
+  }
   g.traverse((obj) => {
     if (obj instanceof THREE.Mesh) obj.castShadow = true;
   });
@@ -299,6 +309,7 @@ export class Fx {
   private crates = new THREE.Group();
   private mines = new THREE.Group();
   private minePool: THREE.Group[] = [];
+  private crusherRing: THREE.Mesh;
 
   constructor(_hemi: THREE.HemisphereLight) {
     this.sprayMat = discMaterial(0xe8f7ff, 78, 0.78, false, 1.85);
@@ -342,6 +353,18 @@ export class Fx {
       this.slamRings.push({ mesh, life: 0 });
       this.particles.add(mesh);
     }
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xff5a2a,
+      transparent: true,
+      opacity: 0.82,
+      depthWrite: false,
+    });
+    this.crusherRing = new THREE.Mesh(new THREE.TorusGeometry(3.35, 0.13, 6, 20), ringMat);
+    this.crusherRing.rotation.x = Math.PI / 2;
+    this.crusherRing.name = "crusherRing";
+    this.crusherRing.visible = false;
+    this.crusherRing.frustumCulled = false;
+    this.particles.add(this.crusherRing);
     this.group.add(this.particles);
     this.group.add(this.pickups);
     this.group.add(this.crates);
@@ -566,6 +589,19 @@ export class Fx {
       const id = child.userData.id as string;
       const c = track.crates.find((x) => x.id === id);
       child.visible = !!c && c.taken <= 0;
+      if (c && c.taken <= 0) child.position.set(c.x, c.y, c.z);
+    }
+    const armed = boats.find((b) => b.crusherUntil > 0);
+    if (armed) {
+      this.crusherRing.visible = true;
+      this.crusherRing.position.set(armed.x, armed.y + 0.55, armed.z);
+      this.crusherRing.rotation.z += dt * 3.2;
+      const pulse = 1 + Math.sin(time * 9) * 0.08;
+      this.crusherRing.scale.setScalar(pulse);
+      (this.crusherRing.material as THREE.MeshBasicMaterial).opacity =
+        0.45 + Math.min(1, armed.crusherUntil / CRUSHER_DURATION) * 0.4;
+    } else {
+      this.crusherRing.visible = false;
     }
 
     const liveMines = track.mines.filter((m) => m.live);

@@ -69,6 +69,6 @@ function placeCrates(track: TrackWorld): CrateSlot[] {
   ];
   return slots.map((s, i) => {
     const p = placeAlong(track.main, s.t, s.lat, 1.4);
-    return { id: `kc${i}`, ...p, kind: i % 2 === 0 ? "boost" : "mine", taken: 0 };
+    return { id: `kc${i}`, ...p, kind: i % 2 === 0 ? "boost" : "mine", taken: 0, vx: 0, vz: 0 };
   });
 }

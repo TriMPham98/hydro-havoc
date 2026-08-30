@@ -1,6 +1,7 @@
 import {
   makeTrack,
   placeAlong,
+  type CrateKind,
   type CrateSlot,
   type PlacedPickup,
   type TrackWorld,
@@ -80,26 +81,35 @@ function placePickups(track: TrackWorld): PlacedPickup[] {
 }
 
 function placeCrates(track: TrackWorld): CrateSlot[] {
-  const slots = [
-    { t: 0.8, lat: 8 },
-    { t: 0.815, lat: 9 },
-    { t: 0.83, lat: 8.2 },
-    { t: 0.845, lat: 9.2 },
+  const slots: { t: number; lat: number; kind: CrateKind }[] = [
+    { t: 0.1, lat: 0, kind: "boost" },
+    { t: 0.16, lat: -1.2, kind: "boost" },
+    { t: 0.21, lat: 1.5, kind: "mine" },
+    { t: 0.38, lat: 0, kind: "crusher" },
+    { t: 0.73, lat: 0, kind: "boost" },
+    { t: 0.8, lat: -1.1, kind: "mine" },
+    { t: 0.87, lat: 1.0, kind: "boost" },
   ];
   return slots.map((s, i) => {
     const p = placeAlong(track.main, s.t, s.lat, 1.4);
     return {
       id: `c${i}`,
       ...p,
-      kind: i % 2 === 0 ? "boost" : "mine",
+      kind: s.kind,
       taken: 0,
+      vx: 0,
+      vz: 0,
     };
   });
 }
 
 export function rollCrateKinds(track: TrackWorld, rng: () => number = Math.random): void {
+  const pinned = track.crates.find((c) => c.kind === "crusher");
+  const crusher = pinned ?? track.crates[Math.floor(rng() * Math.max(1, track.crates.length))];
   for (const crate of track.crates) {
-    crate.kind = rng() < 0.55 ? "boost" : "mine";
     crate.taken = 0;
+    crate.vx = 0;
+    crate.vz = 0;
+    crate.kind = crate === crusher ? "crusher" : rng() < 0.55 ? "boost" : "mine";
   }
 }

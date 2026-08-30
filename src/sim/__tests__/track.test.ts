@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { buildRiptideRefinery } from "../../data/tracks/riptideRefinery";
 import { attractPose, gridPose, queryCourse, resolveBank, respawnPose, showcasePose } from "../Track";
-import { hullOverlap, pairKey, resolveHulls, resetRamTable } from "../Collision";
+import { hullOverlap, pairKey, resolveHulls, resetRamTable, type CrushEvent } from "../Collision";
 import { createBoat } from "../Boat";
+import { RAM_BOOST, RAM_SIPHON, RAM_SIPHON_SUPER } from "../constants";
 import { wrapAngle } from "../math";
 
 describe("track", () => {
@@ -11,7 +12,8 @@ describe("track", () => {
     expect(track.main.totalLength).toBeGreaterThan(400);
     expect(track.shortcut.totalLength).toBeGreaterThan(20);
     expect(track.pickups.some((p) => p.kind === "super")).toBe(true);
-    expect(track.crates.length).toBe(4);
+    expect(track.crates.length).toBe(7);
+    expect(track.crates.filter((c) => c.kind === "crusher")).toHaveLength(1);
     const start = track.main.getFrameAtT(0);
     const q = queryCourse(track, start.x, start.y, start.z);
     expect(q.onRibbon).toBe(true);
@@ -267,5 +269,94 @@ describe("mighty hull", () => {
     resolveHulls([a, b], 1);
     expect(hullOverlap(a, b)).toBeNull();
     expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThan(3);
+  });
+});
+
+function ramPair(): { a: ReturnType<typeof createBoat>; b: ReturnType<typeof createBoat> } {
+  const a = createBoat("a", "ironwake", false);
+  const b = createBoat("b", "skimmer", true);
+  a.x = 0;
+  a.z = 0;
+  b.x = 1;
+  b.z = 0;
+  a.speed = 30;
+  b.speed = 10;
+  a.vx = 20;
+  a.yaw = Math.PI / 2;
+  a.boostHeld = true;
+  return { a, b };
+}
+
+describe("mega hull", () => {
+  it("siphons defender fuel on a ram on top of RAM_BOOST", () => {
+    resetRamTable();
+    const { a, b } = ramPair();
+    a.boostFuel = 1;
+    b.boostFuel = 3;
+    const beforeAtk = a.boostFuel;
+    const beforeDef = b.boostFuel;
+    const events = resolveHulls([a, b], 1);
+    expect(events.some((e) => e.awarded)).toBe(true);
+    expect(b.boostFuel).toBeCloseTo(beforeDef - RAM_SIPHON);
+    expect(a.boostFuel).toBeCloseTo(beforeAtk + RAM_BOOST + RAM_SIPHON);
+  });
+
+  it("siphons more fuel during a super ram than a normal ram", () => {
+    resetRamTable();
+    const normal = ramPair();
+    normal.a.boostFuel = 1;
+    normal.b.boostFuel = 4;
+    resolveHulls([normal.a, normal.b], 1);
+    const stolenNormal = 4 - normal.b.boostFuel;
+
+    resetRamTable();
+    const mega = ramPair();
+    mega.a.boostFuel = 1;
+    mega.a.superBoostRemaining = 2;
+    mega.b.boostFuel = 4;
+    resolveHulls([mega.a, mega.b], 1);
+    const stolenSuper = 4 - mega.b.boostFuel;
+    expect(stolenNormal).toBeCloseTo(RAM_SIPHON);
+    expect(stolenSuper).toBeCloseTo(RAM_SIPHON_SUPER);
+    expect(stolenSuper).toBeGreaterThan(stolenNormal);
+    expect(mega.a.boostFuel).toBeCloseTo(1 + RAM_BOOST + RAM_SIPHON_SUPER);
+  });
+
+  it("fires a hull-crusher shockwave then ignores a second hit for 1s", () => {
+    resetRamTable();
+    const a = createBoat("a", "ironwake", false);
+    const b = createBoat("b", "skimmer", true);
+    const far = createBoat("c", "vesper", true);
+    a.crusherUntil = 7;
+    a.x = 0;
+    a.z = 0;
+    b.x = 1.2;
+    b.z = 0;
+    b.speed = 20;
+    b.vz = 20;
+    far.x = 40;
+    far.z = 40;
+    far.speed = 20;
+    const crushes: CrushEvent[] = [];
+    resolveHulls([a, b, far], 1, crushes);
+    expect(crushes).toHaveLength(1);
+    expect(crushes[0].victims).toContain(b);
+    expect(crushes[0].victims).not.toContain(far);
+    expect(b.airborne).toBe(true);
+    expect(b.speed).toBeLessThan(20);
+    expect(far.airborne).toBe(false);
+    expect(far.speed).toBe(20);
+
+    a.x = 0;
+    a.z = 0;
+    b.x = 1.2;
+    b.z = 0;
+    b.airborne = false;
+    b.speed = 20;
+    b.vy = 0;
+    const again: CrushEvent[] = [];
+    resolveHulls([a, b, far], 1.2, again);
+    expect(again).toHaveLength(0);
+    expect(a.crusherCooldown).toBeGreaterThan(0.5);
   });
 });

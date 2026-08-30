@@ -43,6 +43,8 @@ export function stepBoat(
 ): ControllerResult {
   boat.time += dt;
   if (boat.jetIgnite > 0) boat.jetIgnite = Math.max(0, boat.jetIgnite - dt);
+  if (boat.crusherUntil > 0) boat.crusherUntil = Math.max(0, boat.crusherUntil - dt);
+  if (boat.crusherCooldown > 0) boat.crusherCooldown = Math.max(0, boat.crusherCooldown - dt);
   tickBay(boat, dt);
   const result: ControllerResult = {
     bankHit: false,

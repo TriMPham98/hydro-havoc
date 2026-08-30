@@ -1,4 +1,12 @@
-import { RAM_BOOST, RAM_COOLDOWN, RAM_SPEED_DELTA } from "./constants";
+import {
+  CRUSHER_COOLDOWN,
+  CRUSHER_RADIUS,
+  RAM_BOOST,
+  RAM_COOLDOWN,
+  RAM_SIPHON,
+  RAM_SIPHON_SUPER,
+  RAM_SPEED_DELTA,
+} from "./constants";
 import type { Boat } from "./Boat";
 import { headingVector } from "./Boat";
 import { addNormalBoost, boostLive } from "./BoostSystem";
@@ -7,6 +15,11 @@ export interface RamEvent {
   attacker: Boat;
   defender: Boat;
   awarded: boolean;
+}
+
+export interface CrushEvent {
+  source: Boat;
+  victims: Boat[];
 }
 
 const lastRam = new Map<string, number>();
@@ -116,7 +129,38 @@ function separatePair(a: Boat, b: Boat): { nx: number; nz: number; depth: number
   return hit;
 }
 
-export function resolveHulls(boats: Boat[], now: number): RamEvent[] {
+function siphonBoost(attacker: Boat, defender: Boat): void {
+  const cap = attacker.superBoostRemaining > 0 ? RAM_SIPHON_SUPER : RAM_SIPHON;
+  const stolen = Math.min(cap, Math.max(0, defender.boostFuel));
+  defender.boostFuel -= stolen;
+  addNormalBoost(attacker, stolen);
+}
+
+function applyWipeoutLite(boat: Boat): void {
+  boat.speed *= 0.45;
+  boat.vx *= 0.45;
+  boat.vz *= 0.45;
+  boat.vy += 10;
+  boat.airborne = true;
+  boat.camShake = Math.max(boat.camShake, 0.65);
+}
+
+/** Next boat/bank contact while Hull Crusher is live. Nearby hulls take wipeout-lite. */
+export function fireCrusherShockwave(source: Boat, boats: Boat[]): CrushEvent | null {
+  if (source.crusherUntil <= 0 || source.crusherCooldown > 0) return null;
+  source.crusherCooldown = CRUSHER_COOLDOWN;
+  const victims: Boat[] = [];
+  for (const other of boats) {
+    if (other === source) continue;
+    if (Math.hypot(other.x - source.x, other.z - source.z) < CRUSHER_RADIUS) {
+      applyWipeoutLite(other);
+      victims.push(other);
+    }
+  }
+  return { source, victims };
+}
+
+export function resolveHulls(boats: Boat[], now: number, crushes?: CrushEvent[]): RamEvent[] {
   const events: RamEvent[] = [];
   const awarded = new Set<string>();
   for (let pass = 0; pass < 3; pass++) {
@@ -126,6 +170,15 @@ export function resolveHulls(boats: Boat[], now: number): RamEvent[] {
         const b = boats[j];
         const hit = separatePair(a, b);
         if (!hit || pass > 0) continue;
+
+        if (a.crusherUntil > 0) {
+          const crush = fireCrusherShockwave(a, boats);
+          if (crush) crushes?.push(crush);
+        }
+        if (b.crusherUntil > 0) {
+          const crush = fireCrusherShockwave(b, boats);
+          if (crush) crushes?.push(crush);
+        }
 
         const key = pairKey(a.id, b.id);
         if (awarded.has(key)) continue;
@@ -148,14 +201,16 @@ export function resolveHulls(boats: Boat[], now: number): RamEvent[] {
           if (ahead < 0.8) continue;
           lastRam.set(key, now);
           awarded.add(key);
-          defender.vx += aim.x * 22 + hit.nx * 3;
-          defender.vz += aim.z * 22 + hit.nz * 3;
-          defender.vy += 8;
+          const pop = 22 + Math.max(0, attacker.def.mass - 1) * 12;
+          defender.vx += aim.x * pop + hit.nx * 3;
+          defender.vz += aim.z * pop + hit.nz * 3;
+          defender.vy += 8 + Math.max(0, attacker.def.mass - 1) * 4;
           defender.airborne = true;
           defender.speed = Math.hypot(defender.vx, defender.vz);
           defender.camShake = 0.5;
           attacker.camShake = 0.25;
           addNormalBoost(attacker, RAM_BOOST);
+          siphonBoost(attacker, defender);
           events.push({ attacker, defender, awarded: true });
         }
       }

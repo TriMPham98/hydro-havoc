@@ -46,6 +46,10 @@ export interface Boat {
   camShake: number;
   place: number;
   color: number;
+  /** Seconds remaining on Hull Crusher. */
+  crusherUntil: number;
+  /** Seconds until the next crusher shockwave can fire. */
+  crusherCooldown: number;
 }
 
 export function createBoat(id: string, defId: BoatId, ai: boolean): Boat {
@@ -93,6 +97,8 @@ export function createBoat(id: string, defId: BoatId, ai: boolean): Boat {
     camShake: 0,
     place: 1,
     color: def.color,
+    crusherUntil: 0,
+    crusherCooldown: 0,
   };
 }
 
