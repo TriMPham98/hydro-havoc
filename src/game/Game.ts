@@ -285,7 +285,9 @@ export class Game {
         if (step.landed) {
           this.audio.splash();
           this.renderer.slam(boat.x, boat.y + 0.4, boat.z);
-          this.renderer.hitPunch(0.35);
+          this.renderer.hitPunch(step.wipeout ? 0.7 : step.stuntAward > 0 ? 0.5 : 0.35);
+          if (step.wipeout) this.overlay.flashHit("WIPEOUT");
+          else if (step.stuntAward > 0) this.overlay.flashHit(`STUNT +${step.stuntAward}`);
         }
         if (step.bankHit && boat.speed > 8) {
           this.renderer.bankSpray(boat.x, boat.y + 0.5, boat.z);

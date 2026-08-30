@@ -42,4 +42,16 @@ describe("hydro jump", () => {
     expect(boat.vy).toBeGreaterThan(10);
     expect(boat.boostFuel).toBeCloseTo(2 - JUMP_COST);
   });
+
+  it("rejects when throttle is still down", () => {
+    const boat = createBoat("p", "skimmer", false);
+    boat.speed = 30;
+    boat.boostFuel = 2;
+    boat.throttle = 1;
+    boat.time = 1;
+    boat.brakeAt = 0.95;
+    boat.brake = 1;
+    expect(tryHydroJump(boat, 1)).toBe(false);
+    expect(boat.airborne).toBe(false);
+  });
 });

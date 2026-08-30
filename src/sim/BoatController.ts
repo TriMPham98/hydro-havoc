@@ -14,6 +14,15 @@ import { spendBoost, tickBay } from "./BoostSystem";
 import { tickJumpHold, tryHydroJump } from "./HydroJump";
 import { applyHyperSlide, holdSlideSpeed, SLIDE_CAP, SLIDE_ROLL } from "./HyperSlide";
 import { clamp, lerp, wrapAngle } from "./math";
+import {
+  HARD_PITCH,
+  HARD_VY,
+  WIPEOUT_SPEED,
+  resetStunt,
+  resolveStuntLanding,
+  stuntFlavor,
+  tickAirStunt,
+} from "./Stunt";
 import { buoyGateKiss, queryCourse, resolveBank, respawnPose, slowBandDrag } from "./Track";
 import type { TrackWorld } from "./Track";
 import { gerstnerHeight } from "./waterHeight";
@@ -27,6 +36,8 @@ export interface ControllerResult {
   usingBoost: boolean;
   usingSuper: boolean;
   hyperSliding: boolean;
+  stuntAward: number;
+  wipeout: boolean;
 }
 
 function steerCurve(speed: number, maxSpeed: number): number {
@@ -54,6 +65,8 @@ export function stepBoat(
     usingBoost: false,
     usingSuper: false,
     hyperSliding: false,
+    stuntAward: 0,
+    wipeout: false,
   };
 
   if (locked || boat.finished) {
@@ -63,10 +76,22 @@ export function stepBoat(
     boat.boostHeld = false;
   }
 
+  if (boat.stuntStun > 0) boat.stuntStun = Math.max(0, boat.stuntStun - dt);
+  const stunned = boat.stuntStun > 0;
+  if (stunned) {
+    boat.throttle = 0;
+    boat.steer = 0;
+    boat.brake = 0;
+    boat.boostHeld = false;
+  }
+  const throttle = boat.throttle;
+  const steer = boat.steer;
+  const brake = boat.brake;
+
   const brakeEdge = boat.brake > 0.5 && !boat.prevBrake;
   const boostEdge = boat.boostHeld && !boat.prevBoost;
   if (brakeEdge) boat.brakeAt = boat.time;
-  if (boostEdge && !locked) {
+  if (boostEdge && !locked && !stunned) {
     result.jumped = tryHydroJump(boat, boat.time);
   }
   tickJumpHold(boat, dt);
@@ -95,33 +120,33 @@ export function stepBoat(
 
   if (!boat.airborne) {
     const accel = def.accel * (spend.usingBoost ? 1.55 : 1) * (spend.usingSuper ? 1.25 : 1);
-    if (boat.throttle > 0) boat.speed += accel * boat.throttle * dt;
-    if (boat.brake > 0) boat.speed -= (accel * 1.35 + 18) * boat.brake * dt;
+    if (throttle > 0) boat.speed += accel * throttle * dt;
+    if (brake > 0) boat.speed -= (accel * 1.35 + 18) * brake * dt;
     // Quadratic drag sized so full throttle holds this hull's maxSpeed (and boost cap).
     const dragK = accel / Math.max(maxSpeed * maxSpeed, 1);
     boat.speed -= dragK * boat.speed * boat.speed * dt;
-    if (boat.throttle < 0.05 && boat.brake < 0.05) boat.speed -= 8 * dt;
+    if (throttle < 0.05 && brake < 0.05) boat.speed -= 8 * dt;
     const rubberCap =
-      !spend.usingBoost && !spend.usingSuper && boat.throttle > 1
-        ? Math.min(boat.throttle, 1 + RUBBER_BAND)
+      !spend.usingBoost && !spend.usingSuper && throttle > 1
+        ? Math.min(throttle, 1 + RUBBER_BAND)
         : 1;
     const speedCap = maxSpeed * rubberCap * (slide.active ? SLIDE_CAP : 1);
     boat.speed = clamp(boat.speed, 0, speedCap);
     holdSlideSpeed(boat, dt, maxSpeed);
-    const turn = def.turnRate * steerCurve(boat.speed, def.maxSpeed) * boat.steer * STEER_GAIN + slide.yawAdd;
+    const turn = def.turnRate * steerCurve(boat.speed, def.maxSpeed) * steer * STEER_GAIN + slide.yawAdd;
     boat.yaw += turn * dt;
-    const slip = boat.speed * (1.15 / def.grip) * boat.steer * STEER_GAIN + slide.slipAdd;
+    const slip = boat.speed * (1.15 / def.grip) * steer * STEER_GAIN + slide.slipAdd;
     boat.vx = fwd.x * boat.speed + rightX * slip * 2.4;
     boat.vz = fwd.z * boat.speed + rightZ * slip * 2.4;
   } else {
     if (spend.usingBoost) {
       boat.speed = Math.min(maxSpeed, boat.speed + def.accel * 0.45 * dt);
-      boat.yaw += def.turnRate * 0.38 * boat.steer * STEER_GAIN * dt;
+      boat.yaw += def.turnRate * 0.38 * steer * STEER_GAIN * dt;
     }
     const air = headingVector(boat.yaw);
     boat.vx = air.x * boat.speed;
     boat.vz = air.z * boat.speed;
-    boat.vy -= GRAVITY * dt;
+    boat.vy -= GRAVITY * stuntFlavor(def.id).gravityScale * dt;
   }
 
   boat.x += boat.vx * dt;
@@ -187,23 +212,46 @@ export function stepBoat(
     boat.onWater = true;
     boat.offTrackTime = 0;
     boat.stallTime = 0;
+    resetStunt(boat);
     result.respawned = true;
   }
 
   if (boat.airborne) {
     boat.airTime += dt;
     boat.onWater = false;
+    if (!boat.ai) tickAirStunt(boat, dt, hull - waterY);
     if (q.onRibbon && hull <= waterY && boat.vy <= 2) {
-      const hard = boat.pitch < -0.28 || boat.vy < -16;
+      const hard = boat.pitch < HARD_PITCH || boat.vy < HARD_VY;
       boat.airborne = false;
       boat.onWater = true;
       boat.airTime = 0;
       boat.y = waterY;
       boat.vy = 0;
-      if (hard) boat.speed *= 0.72;
-      else boat.speed *= 0.97;
+      if (!boat.ai) {
+        const stunt = resolveStuntLanding(boat, hard);
+        if (stunt.wipeout) {
+          boat.speed *= WIPEOUT_SPEED;
+          result.wipeout = true;
+          boat.camShake = Math.max(boat.camShake, 0.62);
+        } else {
+          if (hard) boat.speed *= 0.72;
+          else boat.speed *= 0.97;
+          if (stunt.awarded > 0) {
+            result.stuntAward = stunt.awarded;
+            boat.camShake = Math.max(boat.camShake, 0.32);
+          } else {
+            boat.camShake = Math.max(boat.camShake, hard ? 0.45 : 0.2);
+          }
+        }
+      } else {
+        resetStunt(boat);
+        if (hard) boat.speed *= 0.72;
+        else boat.speed *= 0.97;
+        boat.camShake = Math.max(boat.camShake, hard ? 0.45 : 0.2);
+      }
+      boat.roll = wrapAngle(boat.roll);
+      boat.pitch = wrapAngle(boat.pitch);
       result.landed = true;
-      boat.camShake = Math.max(boat.camShake, hard ? 0.45 : 0.2);
     }
   } else if (q.onRibbon) {
     const err = waterY - boat.y;
@@ -227,11 +275,13 @@ export function stepBoat(
     gerstnerHeight(boat.x - fwd.x * 2.4, boat.z - fwd.z * 2.4, boat.time);
   const side = gerstnerHeight(boat.x + rightX * 1.4, boat.z + rightZ * 1.4, boat.time) -
     gerstnerHeight(boat.x - rightX * 1.4, boat.z - rightZ * 1.4, boat.time);
-  const targetPitch = boat.airborne ? clamp(-boat.vy * 0.02, -0.45, 0.35) : clamp(look * 0.18 + q.frame.ty * 0.8, -0.4, 0.4);
-  const rollAmt = 0.32 + (boat.hyperSliding ? SLIDE_ROLL : 0);
-  const targetRoll = clamp(-boat.steer * rollAmt - side * 0.12, -0.62, 0.62);
-  boat.pitch = lerp(boat.pitch, targetPitch, 1 - Math.pow(0.001, dt));
-  boat.roll = lerp(boat.roll, targetRoll, 1 - Math.pow(0.0008, dt));
+  if (!(boat.airborne && !boat.ai)) {
+    const targetPitch = boat.airborne ? clamp(-boat.vy * 0.02, -0.45, 0.35) : clamp(look * 0.18 + q.frame.ty * 0.8, -0.4, 0.4);
+    const rollAmt = 0.32 + (boat.hyperSliding ? SLIDE_ROLL : 0);
+    const targetRoll = clamp(-steer * rollAmt - side * 0.12, -0.62, 0.62);
+    boat.pitch = lerp(boat.pitch, targetPitch, 1 - Math.pow(0.001, dt));
+    boat.roll = lerp(boat.roll, targetRoll, 1 - Math.pow(0.0008, dt));
+  }
   boat.camShake = Math.max(0, boat.camShake - dt * 1.8);
   return result;
 }
