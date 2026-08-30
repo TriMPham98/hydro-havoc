@@ -46,6 +46,12 @@ export interface Boat {
   camShake: number;
   place: number;
   color: number;
+  /** Completed 360° rolls this air. */
+  stuntCount: number;
+  /** Signed roll radians accumulated while steering in the air. */
+  stuntSpin: number;
+  /** Seconds of no throttle/steer after a wipeout. */
+  stuntStun: number;
 }
 
 export function createBoat(id: string, defId: BoatId, ai: boolean): Boat {
@@ -93,6 +99,9 @@ export function createBoat(id: string, defId: BoatId, ai: boolean): Boat {
     camShake: 0,
     place: 1,
     color: def.color,
+    stuntCount: 0,
+    stuntSpin: 0,
+    stuntStun: 0,
   };
 }
 
