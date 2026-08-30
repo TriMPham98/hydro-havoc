@@ -5,8 +5,7 @@ import {
   MINE_RADIUS,
   PICKUP_RADIUS,
 } from "./constants";
-import type { Boat } from "./Boat";
-import { headingVector } from "./Boat";
+import { enterWipeout, headingVector, type Boat } from "./Boat";
 import { boostLive, collectPickup, queueBoost } from "./BoostSystem";
 import { clampToCanal, type CrateSlot, type TrackWorld } from "./Track";
 
@@ -138,6 +137,7 @@ export function stepPickups(track: TrackWorld, boats: Boat[], dt: number, now: n
         boat.vy += 11;
         boat.airborne = true;
         boat.camShake = 0.6;
+        enterWipeout(boat);
         events.push({ kind: "mine", x: mine.x, y: mine.y, z: mine.z, boat });
         break;
       }

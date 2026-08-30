@@ -8,7 +8,7 @@ import {
   RAM_SPEED_DELTA,
 } from "./constants";
 import type { Boat } from "./Boat";
-import { headingVector } from "./Boat";
+import { enterWipeout, headingVector } from "./Boat";
 import { addNormalBoost, boostLive } from "./BoostSystem";
 
 export interface RamEvent {
@@ -154,6 +154,7 @@ export function fireCrusherShockwave(source: Boat, boats: Boat[]): CrushEvent | 
     if (other === source) continue;
     if (Math.hypot(other.x - source.x, other.z - source.z) < CRUSHER_RADIUS) {
       applyWipeoutLite(other);
+      enterWipeout(other);
       victims.push(other);
     }
   }
@@ -209,6 +210,7 @@ export function resolveHulls(boats: Boat[], now: number, crushes?: CrushEvent[])
           defender.speed = Math.hypot(defender.vx, defender.vz);
           defender.camShake = 0.5;
           attacker.camShake = 0.25;
+          enterWipeout(defender);
           addNormalBoost(attacker, RAM_BOOST);
           siphonBoost(attacker, defender);
           events.push({ attacker, defender, awarded: true });

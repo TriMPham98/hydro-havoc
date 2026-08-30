@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { copyPose, createBoat } from "../Boat";
 import { assignAIBoats, driveAI } from "../AIRacer";
+import { hullOverlap, resolveHulls, resetRamTable } from "../Collision";
+import { AI_COUNT } from "../constants";
 import { buildRiptideRefinery } from "../../data/tracks/riptideRefinery";
 import { stepBoat } from "../BoatController";
 import { gridPose, queryCourse } from "../Track";
@@ -102,13 +104,44 @@ describe("AI theater", () => {
     expect(hits).toBeLessThan(24);
   });
 
-  it("fills the field with the other two hulls, not a triple copy", () => {
+  it("fills five AI with mixed hulls, including extras of the player's type", () => {
     const ids = assignAIBoats("skimmer");
-    expect(ids).toHaveLength(3);
+    expect(ids).toHaveLength(AI_COUNT);
+    expect(ids).toHaveLength(5);
     expect(ids.includes("ironwake")).toBe(true);
     expect(ids.includes("vesper")).toBe(true);
-    expect(ids.every((id) => id !== "skimmer")).toBe(true);
-    expect(ids.filter((id) => id === ids[ids.length - 1]).length).toBeLessThan(3);
+    expect(ids.includes("skimmer")).toBe(true);
+    expect(new Set(ids).size).toBe(3);
+    expect(ids.filter((id) => id === "skimmer").length).toBeLessThan(3);
+  });
+
+  it("pins a 6-boat grid without NaN or stuck overlap", () => {
+    const track = buildRiptideRefinery();
+    const player = createBoat("player", "skimmer", false);
+    const ids = assignAIBoats("skimmer");
+    const boats = [player, ...ids.map((id, i) => createBoat(`ai${i}`, id, true))];
+    boats.forEach((boat, i) => {
+      const pose = gridPose(track, i);
+      copyPose(boat, pose);
+      boat.courseT = pose.t;
+    });
+    resetRamTable();
+    for (let f = 0; f < 8; f++) {
+      resolveHulls(boats, f);
+      for (const boat of boats) {
+        stepBoat(boat, track, 1 / 60, f / 60, true);
+        expect(Number.isFinite(boat.x)).toBe(true);
+        expect(Number.isFinite(boat.z)).toBe(true);
+        expect(Number.isFinite(boat.yaw)).toBe(true);
+        expect(Number.isNaN(boat.speed)).toBe(false);
+      }
+    }
+    for (let i = 0; i < boats.length; i++) {
+      for (let j = i + 1; j < boats.length; j++) {
+        expect(hullOverlap(boats[i], boats[j])).toBeNull();
+      }
+    }
+    expect(boats).toHaveLength(6);
   });
 
   it("skimmer brakes earlier than vesper in the mesa band", () => {

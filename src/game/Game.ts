@@ -192,6 +192,7 @@ export class Game {
       boat.steer = 0;
       boat.brake = 0;
       boat.boostHeld = false;
+      boat.wipeout = 0;
     });
   }
 
@@ -262,7 +263,7 @@ export class Game {
         }
       }
     } else if (this.mode === "race" && racing) {
-      const locked = this.player.finished;
+      const locked = this.player.finished || this.player.wipeout > 0;
       this.player.throttle = locked ? 0 : input.throttle;
       const wantSteer = locked ? 0 : input.steer;
       this.player.steer = lerp(this.player.steer, wantSteer, 1 - Math.exp(-9 * dt));
@@ -303,6 +304,12 @@ export class Game {
             this.lastScrape = this.time;
           }
         }
+        if (step.wiped) {
+          this.overlay.flashHit("WIPEOUT");
+          this.audio.mine();
+          this.renderer.slam(boat.x, boat.y + 0.6, boat.z);
+          this.renderer.hitPunch(0.7);
+        }
         if (step.respawned) {
           this.overlay.flashHit("RETURN TO COURSE", 1200);
           this.audio.respawn();
@@ -317,7 +324,7 @@ export class Game {
           this.renderer.slam(ram.defender.x, ram.defender.y + 1, ram.defender.z);
           this.renderer.sparks(ram.defender.x, ram.defender.y + 1.2, ram.defender.z);
           if (ram.attacker === this.player || ram.defender === this.player) {
-            this.overlay.flashHit(ram.attacker === this.player ? "RAM +1" : "HIT");
+            this.overlay.flashHit(ram.attacker === this.player ? "RAM +1" : "WIPEOUT");
             this.renderer.hitPunch(0.85);
           }
         }
@@ -336,7 +343,7 @@ export class Game {
             this.audio.mine();
             this.renderer.slam(e.x, e.y + 0.6, e.z);
             this.renderer.hitPunch(e.boat === this.player ? 0.7 : 0.2);
-            if (e.boat === this.player) this.overlay.flashHit("MINE");
+            if (e.boat === this.player) this.overlay.flashHit("WIPEOUT");
           } else if (e.kind === "crate-crusher") {
             this.audio.pickup("super");
             this.renderer.slam(e.x, e.y + 0.6, e.z);

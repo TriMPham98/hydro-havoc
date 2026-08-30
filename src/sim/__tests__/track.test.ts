@@ -135,7 +135,7 @@ describe("track", () => {
     const c = gridPose(track, 2);
     expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThan(6);
     expect(Math.hypot(a.x - c.x, a.z - c.z)).toBeGreaterThan(6);
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 6; i++) {
       const pose = gridPose(track, i);
       const q = queryCourse(track, pose.x, pose.y, pose.z, pose.t);
       expect(q.onRibbon).toBe(true);
@@ -308,6 +308,8 @@ describe("mighty hull", () => {
     const events = resolveHulls([a, b], 1);
     expect(events.some((e) => e.awarded)).toBe(true);
     expect(a.boostFuel).toBeGreaterThan(0);
+    expect(b.wipeout).toBeGreaterThan(0);
+    expect(a.wipeout).toBe(0);
   });
 
   it("does not ram unless the attacker is boosting", () => {

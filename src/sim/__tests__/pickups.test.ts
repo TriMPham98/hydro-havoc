@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createBoat } from "../Boat";
-import { BLUE_BOOST, CRUSHER_DURATION, MINE_ARM, RED_BOOST } from "../constants";
+import { BLUE_BOOST, CRUSHER_DURATION, MINE_ARM, RED_BOOST, WIPEOUT_TIME } from "../constants";
 import { stepPickups } from "../Pickups";
 import { buildRiptideRefinery, rollCrateKinds } from "../../data/tracks/riptideRefinery";
 
@@ -103,6 +103,8 @@ describe("pickups", () => {
     const blasts = stepPickups(track, [ai], 0, 4);
     expect(blasts.some((e) => e.kind === "mine" && e.boat === ai)).toBe(true);
     expect(ai.speed).toBeLessThan(24);
+    expect(ai.wipeout).toBeGreaterThanOrEqual(WIPEOUT_TIME);
+    expect(ai.airborne).toBe(true);
   });
 
   it("does not collect boost crates unless the player is Mega Hull boosting", () => {
