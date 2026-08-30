@@ -4,7 +4,20 @@ import { RUBBER_BAND } from "./constants";
 import { clamp } from "./math";
 import { wrapAngle } from "./math";
 
-export function driveAI(boat: Boat, track: TrackWorld, player: Boat, racing: boolean, pack: Boat[] = []): void {
+export type AIStyle = "race" | "demo";
+
+export function driveAI(
+  boat: Boat,
+  track: TrackWorld,
+  player: Boat,
+  racing: boolean,
+  pack: Boat[] = [],
+  style: AIStyle = "race",
+): void {
+  if (style === "demo") {
+    driveDemo(boat, track);
+    return;
+  }
   if (!racing || boat.finished) {
     boat.throttle = 0;
     boat.steer = 0;
@@ -75,6 +88,21 @@ export function driveAI(boat: Boat, track: TrackWorld, player: Boat, racing: boo
   const pulse = lastPack || scrum ? -0.82 : -0.42;
   boat.boostHeld = wantBoost && Math.sin(boat.time * 0.85 + boat.x * 0.01) > pulse;
   if (lastPack || scrum) boat.throttle = 1;
+}
+
+/** Attract-mode cruise: spline center, light weave, no boost or ram. */
+function driveDemo(boat: Boat, track: TrackWorld): void {
+  const look = 20 + boat.speed * 0.28;
+  const frame = track.main.getFrameAtT(boat.courseT + look / track.main.totalLength);
+  const maxLat = Math.max(1.2, frame.width * 0.5 - 6.5);
+  const laneOff = clamp(Math.sin(boat.time * 0.32 + boat.x * 0.01) * 1.15, -maxLat, maxLat);
+  const dx = frame.x + frame.rx * laneOff - boat.x;
+  const dz = frame.z + frame.rz * laneOff - boat.z;
+  const err = wrapAngle(Math.atan2(dx, dz) - boat.yaw);
+  boat.steer = clamp(err * 1.45, -1, 1);
+  boat.throttle = Math.abs(err) > 0.85 ? 0.52 : 0.8;
+  boat.brake = Math.abs(err) > 1.05 ? 0.38 : 0;
+  boat.boostHeld = false;
 }
 
 export function assignAIBoats(playerId: string): Array<"skimmer" | "ironwake" | "vesper"> {

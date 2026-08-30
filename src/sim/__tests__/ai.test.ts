@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createBoat } from "../Boat";
+import { copyPose, createBoat } from "../Boat";
 import { assignAIBoats, driveAI } from "../AIRacer";
 import { buildRiptideRefinery } from "../../data/tracks/riptideRefinery";
+import { stepBoat } from "../BoatController";
+import { gridPose, queryCourse } from "../Track";
 
 describe("AI theater", () => {
   it("drafts harder when stacked just behind the player", () => {
@@ -42,6 +44,30 @@ describe("AI theater", () => {
     driveAI(ai, track, player, true, [player, ai]);
     expect(ai.throttle).toBeGreaterThan(0.6);
     expect(Math.abs(ai.steer)).toBeGreaterThan(0);
+  });
+
+  it("demo style cruises the main canal without boost or bank hits", () => {
+    const track = buildRiptideRefinery();
+    const boat = createBoat("demo", "skimmer", true);
+    const pose = gridPose(track, 0);
+    copyPose(boat, pose);
+    boat.courseT = pose.t;
+    boat.speed = 22;
+    boat.vx = Math.sin(boat.yaw) * 22;
+    boat.vz = Math.cos(boat.yaw) * 22;
+    let hits = 0;
+    for (let i = 0; i < 240; i++) {
+      driveAI(boat, track, boat, true, [boat], "demo");
+      expect(boat.boostHeld).toBe(false);
+      const step = stepBoat(boat, track, 1 / 60, i / 60, false);
+      if (step.bankHit) hits++;
+    }
+    const q = queryCourse(track, boat.x, boat.y, boat.z, boat.courseT);
+    expect(q.onRibbon).toBe(true);
+    expect(q.onShortcut).toBe(false);
+    expect(Math.abs(q.lateral)).toBeLessThan(q.halfWidth - 2);
+    expect(hits).toBeLessThan(8);
+    expect(boat.courseT).toBeGreaterThan(pose.t + 0.02);
   });
 
   it("fills the field with the other two hulls, not a triple copy", () => {

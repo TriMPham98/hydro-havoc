@@ -7,7 +7,9 @@ const SPRAY_COUNT = 400;
 const MIST_COUNT = 64;
 const TRAIL_COUNT = 120;
 const SPARK_COUNT = 360;
-const SHEET_POOL = 8;
+/** Player-only: transom, two chines, two upright fans. AI stays on discs. */
+const PLAYER_SHEETS = 5;
+const SLAM_RINGS = 2;
 const INV_2_32 = 2.3283064365386963e-10;
 
 function hash01(i: number, salt: number): number {
@@ -58,15 +60,15 @@ function discMaterial(
   });
 }
 
-function sheetMaterial(): THREE.ShaderMaterial {
+function sheetMaterial(foam = false): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
     depthTest: true,
     side: THREE.DoubleSide,
-    blending: THREE.NormalBlending,
+    blending: foam ? THREE.AdditiveBlending : THREE.NormalBlending,
     uniforms: {
-      uColor: { value: new THREE.Color(0xd4eef8) },
+      uColor: { value: new THREE.Color(foam ? 0xeaf7ff : 0xd4eef8) },
       uOpacity: { value: 0 },
     },
     vertexShader: `
@@ -91,6 +93,170 @@ function sheetMaterial(): THREE.ShaderMaterial {
   });
 }
 
+function ringMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    side: THREE.DoubleSide,
+    blending: THREE.NormalBlending,
+    uniforms: {
+      uColor: { value: new THREE.Color(0xdef4fb) },
+      uOpacity: { value: 0 },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      varying vec2 vUv;
+      void main() {
+        float r = length(vUv - 0.5);
+        float ring = smoothstep(0.5, 0.36, r) * smoothstep(0.22, 0.34, r);
+        float a = ring * uOpacity;
+        if (a < 0.02) discard;
+        gl_FragColor = vec4(uColor, a);
+      }
+    `,
+  });
+}
+
+function metal(
+  color: number,
+  metalness: number,
+  roughness: number,
+  emissive = 0,
+  emissiveIntensity = 0,
+): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
+    color,
+    metalness,
+    roughness,
+    emissive,
+    emissiveIntensity,
+  });
+}
+
+const Y_UP = new THREE.Vector3(0, 1, 0);
+const SPIKE_DIR = new THREE.Vector3();
+const SPIKE_AXIS = new THREE.Vector3(1, 0, 0);
+
+function addSpike(parent: THREE.Group, x: number, y: number, z: number, mat: THREE.Material): void {
+  SPIKE_DIR.set(x, y, z).normalize();
+  const spike = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.5, 5), mat);
+  if (SPIKE_DIR.y < -0.99) spike.quaternion.setFromAxisAngle(SPIKE_AXIS, Math.PI);
+  else spike.quaternion.setFromUnitVectors(Y_UP, SPIKE_DIR);
+  spike.position.copy(SPIKE_DIR).multiplyScalar(0.7);
+  parent.add(spike);
+}
+
+function beaconBuoy(kind: "blue" | "red" | "super"): THREE.Group {
+  const g = new THREE.Group();
+  const accent = kind === "super" ? 0xffe14a : kind === "red" ? 0xff3d6e : 0x2ee6ff;
+  const hull = new THREE.Mesh(new THREE.SphereGeometry(0.52, 12, 8), metal(0x3a454c, 0.74, 0.26));
+  hull.scale.set(1, 0.7, 1);
+  g.add(hull);
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.07, 6, 12), metal(0x8a6a3a, 0.48, 0.38));
+  collar.rotation.x = Math.PI / 2;
+  collar.position.y = 0.1;
+  g.add(collar);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.085, 1.05, 8), metal(0x2a3238, 0.82, 0.2));
+  mast.position.y = 0.68;
+  g.add(mast);
+  const lamp = new THREE.Mesh(
+    new THREE.SphereGeometry(0.2, 10, 8),
+    new THREE.MeshStandardMaterial({
+      color: accent,
+      emissive: accent,
+      emissiveIntensity: 1.15,
+      roughness: 0.22,
+      metalness: 0.18,
+    }),
+  );
+  lamp.position.y = 1.24;
+  lamp.name = "beaconLamp";
+  g.add(lamp);
+  const cage = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.16, 8, 1, true), metal(0x4a545c, 0.7, 0.3, accent, 0.35));
+  cage.position.y = 1.08;
+  g.add(cage);
+  g.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) obj.castShadow = true;
+  });
+  return g;
+}
+
+function scrapCrate(kind: "boost" | "mine"): THREE.Group {
+  const g = new THREE.Group();
+  const rust = metal(kind === "mine" ? 0x5a2a12 : 0x8a6a22, 0.55, 0.48);
+  const steel = metal(0x3d4750, 0.72, 0.3);
+  g.add(new THREE.Mesh(new THREE.BoxGeometry(1.65, 1.45, 1.65), rust));
+  const bandA = new THREE.Mesh(new THREE.BoxGeometry(1.74, 0.11, 1.74), steel);
+  bandA.position.y = 0.32;
+  g.add(bandA);
+  const bandB = bandA.clone();
+  bandB.position.y = -0.32;
+  g.add(bandB);
+  for (const x of [-0.78, 0.78]) {
+    for (const z of [-0.78, 0.78]) {
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.5, 0.16), steel);
+      cap.position.set(x, 0, z);
+      g.add(cap);
+    }
+  }
+  const accent = kind === "mine" ? 0xff6a22 : 0x2ee6ff;
+  const lamp = new THREE.Mesh(
+    new THREE.BoxGeometry(0.5, 0.08, 0.5),
+    new THREE.MeshStandardMaterial({ color: accent, emissive: accent, emissiveIntensity: 0.9, metalness: 0.25, roughness: 0.35 }),
+  );
+  lamp.position.y = 0.78;
+  lamp.name = "crateLamp";
+  g.add(lamp);
+  g.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) obj.castShadow = true;
+  });
+  return g;
+}
+
+function spikedMine(): THREE.Group {
+  const g = new THREE.Group();
+  const bodyMat = metal(0x22110a, 0.68, 0.36, 0x331100, 0.45);
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.6, 12, 10), bodyMat);
+  body.name = "mineBody";
+  g.add(body);
+  const spikeMat = metal(0x3a2a22, 0.72, 0.3);
+  const dirs: [number, number, number][] = [
+    [0, 1, 0],
+    [0, -1, 0],
+    [1, 0, 0],
+    [-1, 0, 0],
+    [0, 0, 1],
+    [0, 0, -1],
+    [0.7, 0.7, 0],
+    [-0.7, 0.7, 0],
+    [0.7, -0.7, 0],
+    [-0.7, -0.7, 0],
+    [0, 0.55, 0.8],
+    [0, 0.55, -0.8],
+  ];
+  for (const [x, y, z] of dirs) addSpike(g, x, y, z, spikeMat);
+  const glow = new THREE.Mesh(
+    new THREE.SphereGeometry(0.15, 8, 6),
+    new THREE.MeshStandardMaterial({ color: 0xff2a2a, emissive: 0x331100, emissiveIntensity: 0.6, roughness: 0.28 }),
+  );
+  glow.name = "mineGlow";
+  glow.position.y = 0.12;
+  g.add(glow);
+  g.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) obj.castShadow = true;
+  });
+  return g;
+}
+
 function makeCloud(count: number, mat: THREE.ShaderMaterial): { pts: THREE.Points; vel: Float32Array } {
   const geo = new THREE.BufferGeometry();
   const pos = new Float32Array(count * 3);
@@ -102,6 +268,7 @@ function makeCloud(count: number, mat: THREE.ShaderMaterial): { pts: THREE.Point
 
 export class Fx {
   readonly group = new THREE.Group();
+  readonly particles = new THREE.Group();
   private spray: THREE.Points;
   private sprayMat: THREE.ShaderMaterial;
   private sprayVel: Float32Array;
@@ -116,10 +283,11 @@ export class Fx {
   private sparksVel: Float32Array;
   private sparksLife: Float32Array;
   private sheets: THREE.Mesh[] = [];
+  private slamRings: { mesh: THREE.Mesh; life: number }[] = [];
   private pickups = new THREE.Group();
   private crates = new THREE.Group();
   private mines = new THREE.Group();
-  private minePool: THREE.Mesh[] = [];
+  private minePool: THREE.Group[] = [];
 
   constructor(_hemi: THREE.HemisphereLight) {
     this.sprayMat = discMaterial(0xe8f7ff, 78, 0.78, false, 1.85);
@@ -139,24 +307,36 @@ export class Fx {
     this.sparksPts = sparks.pts;
     this.sparksVel = sparks.vel;
     this.sparksLife = new Float32Array(SPARK_COUNT);
-    this.group.add(this.spray, this.mist, this.trail, this.sparksPts);
+    this.particles.name = "fxParticles";
+    this.particles.add(this.spray, this.mist, this.trail, this.sparksPts);
     const sheetGeo = new THREE.PlaneGeometry(1, 1);
     sheetGeo.rotateX(-Math.PI / 2);
-    for (let i = 0; i < SHEET_POOL; i++) {
-      const mesh = new THREE.Mesh(sheetGeo, sheetMaterial());
+    const names = ["sprayTransom", "sprayChineL", "sprayChineR", "sprayFanL", "sprayFanR"];
+    for (let i = 0; i < PLAYER_SHEETS; i++) {
+      const foam = i >= 3;
+      const mesh = new THREE.Mesh(sheetGeo, sheetMaterial(foam));
+      mesh.name = names[i];
       mesh.visible = false;
       mesh.frustumCulled = false;
       this.sheets.push(mesh);
-      this.group.add(mesh);
+      this.particles.add(mesh);
     }
+    const ringGeo = new THREE.CircleGeometry(1, 16);
+    ringGeo.rotateX(-Math.PI / 2);
+    for (let i = 0; i < SLAM_RINGS; i++) {
+      const mesh = new THREE.Mesh(ringGeo, ringMaterial());
+      mesh.name = `slamRing${i}`;
+      mesh.visible = false;
+      mesh.frustumCulled = false;
+      this.slamRings.push({ mesh, life: 0 });
+      this.particles.add(mesh);
+    }
+    this.group.add(this.particles);
     this.group.add(this.pickups);
     this.group.add(this.crates);
     this.group.add(this.mines);
     for (let i = 0; i < 8; i++) {
-      const m = new THREE.Mesh(
-        new THREE.SphereGeometry(0.85, 10, 8),
-        new THREE.MeshStandardMaterial({ color: 0x22110a, emissive: 0x331100 }),
-      );
+      const m = spikedMine();
       m.visible = false;
       this.minePool.push(m);
       this.mines.add(m);
@@ -166,23 +346,20 @@ export class Fx {
   rebuildPickups(track: TrackWorld): void {
     this.pickups.clear();
     for (const p of track.pickups) {
-      const color = p.kind === "super" ? 0xffe14a : p.kind === "red" ? 0xff3d6e : 0x2ee6ff;
-      const mesh = new THREE.Mesh(
-        new THREE.OctahedronGeometry(1.15),
-        new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.8 }),
-      );
+      const mesh = beaconBuoy(p.kind);
+      mesh.name = "pickupBeacon";
       mesh.position.set(p.x, p.y, p.z);
       mesh.userData.id = p.id;
+      mesh.userData.kind = p.kind;
       this.pickups.add(mesh);
     }
     this.crates.clear();
     for (const c of track.crates) {
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(2.1, 2.1, 2.1),
-        new THREE.MeshStandardMaterial({ color: c.kind === "mine" ? 0x5a2a12 : 0x8a6a22 }),
-      );
+      const mesh = scrapCrate(c.kind);
+      mesh.name = "scrapCrate";
       mesh.position.set(c.x, c.y, c.z);
       mesh.userData.id = c.id;
+      mesh.userData.kind = c.kind;
       this.crates.add(mesh);
     }
   }
@@ -241,32 +418,81 @@ export class Fx {
     pos.needsUpdate = true;
   }
 
-  private updateSheets(boats: Boat[]): void {
-    for (let i = 0; i < this.sheets.length; i++) {
-      const mesh = this.sheets[i];
-      const boat = boats[i];
-      const mat = mesh.material as THREE.ShaderMaterial;
-      if (!boat || !boat.onWater || boat.speed < 5) {
+  private placeSheet(
+    mesh: THREE.Mesh,
+    boat: Boat,
+    lat: number,
+    aft: number,
+    yOff: number,
+    wid: number,
+    len: number,
+    pitch: number,
+    roll: number,
+    opacity: number,
+  ): void {
+    const fwd = headingVector(boat.yaw);
+    const rx = fwd.z;
+    const rz = -fwd.x;
+    const mat = mesh.material as THREE.ShaderMaterial;
+    mesh.visible = true;
+    mesh.position.set(
+      boat.x + rx * lat - fwd.x * aft,
+      boat.y + yOff,
+      boat.z + rz * lat - fwd.z * aft,
+    );
+    mesh.rotation.set(pitch, boat.yaw, roll);
+    mesh.scale.set(wid, 1, len);
+    mat.uniforms.uOpacity.value = opacity;
+  }
+
+  private updateSheets(host: Boat | undefined): void {
+    if (!host || !host.onWater || host.speed < 5) {
+      for (const mesh of this.sheets) {
         mesh.visible = false;
-        mat.uniforms.uOpacity.value = 0;
-        continue;
+        (mesh.material as THREE.ShaderMaterial).uniforms.uOpacity.value = 0;
       }
-      const fwd = headingVector(boat.yaw);
-      const player = !boat.ai;
-      const len = 3.6 + boat.speed * 0.1 + (boat.boostHeld ? 1.8 : 0) + (player ? 1.1 : 0);
-      const wid = boat.def.hullWidth * (player ? 1.28 : 0.95);
-      const aft = boat.def.hullLength * 0.48 + len * 0.5;
-      mesh.visible = true;
-      mesh.position.set(boat.x - fwd.x * aft, boat.y + 0.05, boat.z - fwd.z * aft);
-      mesh.rotation.y = boat.yaw;
-      mesh.scale.set(wid, 1, len);
-      const wet = Math.min(player ? 0.3 : 0.16, 0.07 + boat.speed / (player ? 150 : 220));
-      mat.uniforms.uOpacity.value = wet;
+      return;
     }
+    const speed = host.speed;
+    const boost = host.boostHeld && (host.boostFuel > 0 || host.superBoostRemaining > 0) ? 1 : 0;
+    const hullW = host.def.hullWidth;
+    const hullL = host.def.hullLength;
+    const wet = Math.min(0.38, 0.1 + speed / 140 + boost * 0.08);
+    const transomLen = 4.2 + speed * 0.12 + boost * 2.1;
+    const transomWid = hullW * 1.35 + boost * 0.4;
+    this.placeSheet(
+      this.sheets[0],
+      host,
+      0,
+      hullL * 0.48 + transomLen * 0.5,
+      0.06,
+      transomWid,
+      transomLen,
+      0.08,
+      0,
+      wet,
+    );
+    const chineLen = 2.6 + speed * 0.08 + boost * 0.7;
+    const chineWid = 1.15 + speed * 0.03;
+    const chineLat = hullW * 0.46;
+    const chineAft = hullL * 0.12;
+    this.placeSheet(this.sheets[1], host, -chineLat, chineAft, 0.1, chineWid, chineLen, 0.32, -0.55, wet * 0.85);
+    this.placeSheet(this.sheets[2], host, chineLat, chineAft, 0.1, chineWid, chineLen, 0.32, 0.55, wet * 0.85);
+    const fanLen = 1.8 + speed * 0.055 + boost * 0.9;
+    const fanWid = 0.85 + speed * 0.02;
+    const fanAft = hullL * 0.46;
+    this.placeSheet(this.sheets[3], host, -hullW * 0.4, fanAft, 0.18, fanWid, fanLen, 1.05, -0.35, wet * 0.7);
+    this.placeSheet(this.sheets[4], host, hullW * 0.4, fanAft, 0.18, fanWid, fanLen, 1.05, 0.35, wet * 0.7);
   }
 
   slam(x: number, y: number, z: number): void {
     this.burst(x, y, z, 72, 22, 18);
+    const slot = this.slamRings.find((r) => r.life <= 0) ?? this.slamRings[0];
+    slot.life = 0.42;
+    slot.mesh.visible = true;
+    slot.mesh.position.set(x, y + 0.04, z);
+    slot.mesh.scale.setScalar(1.4);
+    (slot.mesh.material as THREE.ShaderMaterial).uniforms.uOpacity.value = 0.55;
   }
 
   bankSpray(x: number, y: number, z: number): void {
@@ -322,24 +548,40 @@ export class Fx {
       }
       mesh.visible = true;
       mesh.position.set(mine.x, mine.y + 0.4, mine.z);
-      const mat = mesh.material as THREE.MeshStandardMaterial;
-      mat.emissive.setHex(mine.age > 0.7 ? 0xff2a2a : 0x331100);
+      mesh.rotation.y += dt * 1.6;
+      const glow = mesh.getObjectByName("mineGlow");
+      if (glow instanceof THREE.Mesh && glow.material instanceof THREE.MeshStandardMaterial) {
+        const hot = mine.age > 0.7;
+        glow.material.emissive.setHex(hot ? 0xff2a2a : 0x331100);
+        glow.material.emissiveIntensity = hot ? 1.45 : 0.45;
+      }
     });
 
     const emitters = boats.filter((b) => b.onWater && b.speed > 4);
     const host = boats.find((b) => !b.ai) ?? boats[0];
     if (host && emitters.length) {
-      this.stepCloud(this.spray, this.sprayVel, emitters, host, dt, 1, 2.8, 0.9);
-      this.stepCloud(this.mist, this.mistVel, emitters, host, dt, 0.38, 6.4, 0.88);
-      this.stepCloud(this.trail, this.trailVel, emitters.filter((b) => b.boostHeld), host, dt, 0.28, 1.6, 0.9);
+      this.stepCloud(this.spray, this.sprayVel, emitters, host, dt, 1, 2.8, 0.42);
+      this.stepCloud(this.mist, this.mistVel, emitters, host, dt, 0.38, 6.4, 0.38);
+      this.stepCloud(this.trail, this.trailVel, emitters.filter((b) => b.boostHeld), host, dt, 0.28, 1.6, 0.55);
       const wet = host.onWater && host.speed > 5;
-      this.sprayMat.uniforms.uOpacity.value = wet ? Math.min(0.84, 0.4 + host.speed / 48) : 0.04;
-      this.sprayMat.uniforms.uSize.value = (boosting ? 96 : 78) + host.speed * 0.42;
+      this.sprayMat.uniforms.uOpacity.value = wet ? Math.min(0.7, 0.28 + host.speed / 62) : 0.04;
+      this.sprayMat.uniforms.uSize.value = (boosting ? 72 : 58) + host.speed * 0.32;
       this.mistMat.uniforms.uOpacity.value = wet ? 0.05 + host.speed / 900 : 0.01;
       this.mistMat.uniforms.uSize.value = 22 + host.speed * 0.08;
       this.trailMat.uniforms.uOpacity.value = boosting ? 0.72 : 0.08;
     }
-    this.updateSheets(boats);
+    this.updateSheets(host);
+    for (const ring of this.slamRings) {
+      if (ring.life <= 0) {
+        ring.mesh.visible = false;
+        continue;
+      }
+      ring.life -= dt;
+      const k = 1 - ring.life / 0.42;
+      ring.mesh.scale.setScalar(1.4 + k * 7.5);
+      (ring.mesh.material as THREE.ShaderMaterial).uniforms.uOpacity.value = Math.max(0, 0.55 * (1 - k));
+      if (ring.life <= 0) ring.mesh.visible = false;
+    }
     const sparkPos = this.sparksPts.geometry.getAttribute("position") as THREE.BufferAttribute;
     let live = 0;
     for (let i = 0; i < sparkPos.count; i++) {

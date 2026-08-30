@@ -31,6 +31,7 @@ const MAIN: ControlPoint[] = [
   { x: 0, y: 0, z: -14, width: 26, bankHeight: 4.6 },
 ];
 
+/** Parked hidden cut — spline kept, not meshed or queried. */
 const SHORTCUT: ControlPoint[] = [
   { x: 210, y: 12.8, z: 1088, width: 16, bankHeight: 3 },
   { x: 400, y: 14.0, z: 1155, width: 16, bankHeight: 2.6 },
@@ -55,13 +56,13 @@ export function buildRiptideRefinery(): TrackWorld {
 }
 
 function placePickups(track: TrackWorld): PlacedPickup[] {
-  const specs: { kind: PlacedPickup["kind"]; t: number; lat: number; y: number; cut?: boolean }[] = [
+  const specs: { kind: PlacedPickup["kind"]; t: number; lat: number; y: number }[] = [
     { kind: "blue", t: 0.08, lat: -5, y: 1.4 },
     { kind: "blue", t: 0.12, lat: 4.5, y: 1.4 },
     { kind: "blue", t: 0.18, lat: -4, y: 1.4 },
     { kind: "red", t: 0.3, lat: 0, y: 1.5 },
     { kind: "blue", t: 0.34, lat: 5, y: 1.4 },
-    { kind: "red", t: 0.42, lat: 0, y: 2.2, cut: true },
+    { kind: "red", t: 0.42, lat: 0, y: 2.2 },
     { kind: "blue", t: 0.48, lat: -4, y: 1.4 },
     { kind: "blue", t: 0.55, lat: 4, y: 1.4 },
     { kind: "super", t: 0.66, lat: 0, y: 1.7 },
@@ -70,7 +71,7 @@ function placePickups(track: TrackWorld): PlacedPickup[] {
     { kind: "blue", t: 0.94, lat: -3.5, y: 1.4 },
   ];
   return specs.map((s, i) => {
-    const p = placeAlong(s.cut ? track.shortcut : track.main, s.t, s.lat, s.y);
+    const p = placeAlong(track.main, s.t, s.lat, s.y);
     return { id: `p${i}`, kind: s.kind, ...p, taken: 0 };
   });
 }

@@ -129,6 +129,13 @@ describe("track", () => {
     const q = queryCourse(track, mid.x, 0.8, mid.z, 0.3);
     expect(q.onShortcut).toBe(false);
   });
+
+  it("parks the hidden cut: query never prefers the shortcut spline", () => {
+    const track = buildRiptideRefinery();
+    const mid = track.shortcut.getFrameAtT(0.5);
+    const q = queryCourse(track, mid.x, mid.y + 0.8, mid.z, 0.42);
+    expect(q.onShortcut).toBe(false);
+  });
 });
 
 describe("mighty hull", () => {

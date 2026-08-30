@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { BoatDef } from "../data/boats";
 
 function planform(len: number, width: number): THREE.Shape {
@@ -194,6 +195,16 @@ const LOWER_HULL = new Set([
 
 const WET_SKIP = new Set(["turbineGlow", "waterline", "chineSprayL", "chineSprayR"]);
 
+const MERGE_KEEP = new Set<string>([
+  "turbine",
+  "turbineGlow",
+  "SprayRail_L",
+  "SprayRail_R",
+  ...LOWER_HULL,
+  ...WET_SKIP,
+  ...HIDDEN_HELPERS,
+]);
+
 const WET_DARK = new THREE.Color(0x081018);
 
 type HullHeatSlot = {
@@ -387,6 +398,85 @@ export function applyHullHeat(root: THREE.Object3D, heat: number): void {
   }
 }
 
+function geometriesForMerge(meshes: THREE.Mesh[], rootInv: THREE.Matrix4): THREE.BufferGeometry[] | null {
+  const rel = new THREE.Matrix4();
+  const baked: THREE.BufferGeometry[] = [];
+  for (const mesh of meshes) {
+    const geo = mesh.geometry.clone();
+    rel.multiplyMatrices(rootInv, mesh.matrixWorld);
+    geo.applyMatrix4(rel);
+    geo.morphAttributes = {};
+    baked.push(geo);
+  }
+  const names = new Set(Object.keys(baked[0].attributes));
+  for (const g of baked) {
+    for (const name of [...names]) {
+      if (!g.hasAttribute(name)) names.delete(name);
+    }
+  }
+  if (!names.has("position")) {
+    for (const g of baked) g.dispose();
+    return null;
+  }
+  const anyIndexed = baked.some((g) => g.index !== null);
+  const allIndexed = baked.every((g) => g.index !== null);
+  const out: THREE.BufferGeometry[] = [];
+  for (const g of baked) {
+    for (const name of Object.keys(g.attributes)) {
+      if (!names.has(name)) g.deleteAttribute(name);
+    }
+    if (anyIndexed && !allIndexed && g.index) {
+      const ni = g.toNonIndexed();
+      g.dispose();
+      out.push(ni);
+    } else {
+      out.push(g);
+    }
+  }
+  return out;
+}
+
+export function mergeMeshesByMaterial(root: THREE.Object3D): void {
+  if (root.userData.mergedByMaterial) return;
+  root.updateMatrixWorld(true);
+  const rootInv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const buckets = new Map<string, { material: THREE.Material; meshes: THREE.Mesh[] }>();
+  root.traverse((obj) => {
+    if (!(obj instanceof THREE.Mesh) || obj instanceof THREE.InstancedMesh) return;
+    if (MERGE_KEEP.has(obj.name) || Array.isArray(obj.material) || !obj.geometry) return;
+    const material = obj.material as THREE.Material;
+    let bucket = buckets.get(material.uuid);
+    if (!bucket) {
+      bucket = { material, meshes: [] };
+      buckets.set(material.uuid, bucket);
+    }
+    bucket.meshes.push(obj);
+  });
+  for (const bucket of buckets.values()) {
+    if (bucket.meshes.length < 2) continue;
+    const prepared = geometriesForMerge(bucket.meshes, rootInv);
+    if (!prepared) continue;
+    const merged = mergeGeometries(prepared, false) as THREE.BufferGeometry | null;
+    for (const g of prepared) g.dispose();
+    if (!merged) continue;
+    const out = new THREE.Mesh(merged, bucket.material);
+    out.name = bucket.material.name ? `${bucket.material.name}_merged` : "merged";
+    out.castShadow = true;
+    out.receiveShadow = true;
+    root.add(out);
+    const drop = new Set(bucket.meshes);
+    const stillUsed = new Set<THREE.BufferGeometry>();
+    root.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && !drop.has(obj) && obj.geometry) stillUsed.add(obj.geometry);
+    });
+    for (const mesh of bucket.meshes) {
+      if (!stillUsed.has(mesh.geometry)) mesh.geometry.dispose();
+      mesh.removeFromParent();
+    }
+  }
+  root.userData.mergedByMaterial = true;
+}
+
 function wireLoadedBoat(root: THREE.Group, def: BoatDef): void {
   root.traverse((obj) => {
     if (HIDDEN_HELPERS.has(obj.name)) obj.visible = false;
@@ -434,6 +524,7 @@ function loadBoatTemplate(def: BoatDef): Promise<THREE.Group | null> {
     .then((gltf) => {
       const scene = gltf.scene;
       scene.name = def.id;
+      mergeMeshesByMaterial(scene);
       wireLoadedBoat(scene, def);
       templates.set(def.id, scene);
       inflight.delete(def.id);

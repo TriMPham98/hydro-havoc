@@ -1,24 +1,36 @@
 import * as THREE from "three";
 import { WAVES } from "../sim/waterHeight";
 
+const BLACK_TEX = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+BLACK_TEX.needsUpdate = true;
+
 export function createWaterMaterial(kind: "canal" | "ocean" = "canal"): THREE.ShaderMaterial {
   const canal = kind === "canal";
   return new THREE.ShaderMaterial({
     transparent: !canal,
     depthWrite: true,
-    uniforms: {
-      uTime: { value: 0 },
-      uCam: { value: new THREE.Vector3() },
-      uSunDir: { value: new THREE.Vector3(-0.62, 0.28, 0.38).normalize() },
-      uColorDeep: { value: new THREE.Color(canal ? 0x0a5870 : 0x044450) },
-      uColorShallow: { value: new THREE.Color(canal ? 0x1eb4c6 : 0x16787c) },
-      uColorFoam: { value: new THREE.Color(0xe4f4f6) },
-      uSky: { value: new THREE.Color(0xd7c09a) },
-      uEnv: { value: null as THREE.CubeTexture | null },
-      uHasEnv: { value: 0 },
-      uEdgeFoam: { value: canal ? 1 : 0 },
-    },
+    lights: true,
+    uniforms: THREE.UniformsUtils.merge([
+      THREE.UniformsLib.lights,
+      {
+        uTime: { value: 0 },
+        uCam: { value: new THREE.Vector3() },
+        uSunDir: { value: new THREE.Vector3(-0.62, 0.28, 0.38).normalize() },
+        uColorDeep: { value: new THREE.Color(canal ? 0x0a5870 : 0x044450) },
+        uColorShallow: { value: new THREE.Color(canal ? 0x1eb4c6 : 0x16787c) },
+        uColorFoam: { value: new THREE.Color(0xe4f4f6) },
+        uSky: { value: new THREE.Color(0xd7c09a) },
+        uEnv: { value: null as THREE.CubeTexture | null },
+        uHasEnv: { value: 0 },
+        uPlanar: { value: BLACK_TEX },
+        uHasPlanar: { value: 0 },
+        uReflectMatrix: { value: new THREE.Matrix4() },
+        uEdgeFoam: { value: canal ? 1 : 0 },
+      },
+    ]),
     vertexShader: `
+      #include <common>
+      #include <shadowmap_pars_vertex>
       uniform float uTime;
       varying vec3 vWorld;
       varying vec3 vNormalW;
@@ -55,10 +67,18 @@ export function createWaterMaterial(kind: "canal" | "ocean" = "canal"): THREE.Sh
         vNormalW = normalize(vec3(-hx, 1.0, -hz));
         vFoam = h;
         vCrest = max(0.0, h);
+        vec3 transformedNormal = mat3(viewMatrix) * vNormalW;
+        vec4 worldPosition = world;
+        #include <shadowmap_vertex>
         gl_Position = projectionMatrix * viewMatrix * world;
       }
     `,
     fragmentShader: `
+      #include <common>
+      #include <packing>
+      #include <lights_pars_begin>
+      #include <shadowmap_pars_fragment>
+      #include <shadowmask_pars_fragment>
       uniform vec3 uColorDeep;
       uniform vec3 uColorShallow;
       uniform vec3 uColorFoam;
@@ -67,6 +87,9 @@ export function createWaterMaterial(kind: "canal" | "ocean" = "canal"): THREE.Sh
       uniform vec3 uSunDir;
       uniform samplerCube uEnv;
       uniform float uHasEnv;
+      uniform sampler2D uPlanar;
+      uniform float uHasPlanar;
+      uniform mat4 uReflectMatrix;
       uniform float uEdgeFoam;
       uniform float uTime;
       varying vec3 vWorld;
@@ -87,9 +110,22 @@ export function createWaterMaterial(kind: "canal" | "ocean" = "canal"): THREE.Sh
         env = mix(env, vec3(1.0, 0.86, 0.58), pow(max(0.0, dot(normalize(r), uSunDir)), 16.0) * 0.45);
         if (uHasEnv > 0.5) {
           vec3 cube = textureCube(uEnv, normalize(r)).rgb;
-          env = mix(env, cube, 0.55);
+          env = mix(env, cube, uHasPlanar > 0.5 ? 0.22 : 0.55);
         }
-        water = mix(water, env, clamp(0.1 + fresnel * 0.48, 0.0, 0.58));
+        if (uHasPlanar > 0.5) {
+          vec4 pcoord = uReflectMatrix * vec4(vWorld, 1.0);
+          if (pcoord.w > 0.02) {
+            vec2 puv = pcoord.xy / pcoord.w;
+            float pEdge = smoothstep(0.0, 0.07, puv.x) * smoothstep(1.0, 0.93, puv.x)
+              * smoothstep(0.0, 0.07, puv.y) * smoothstep(1.0, 0.93, puv.y);
+            vec3 planar = texture2D(uPlanar, puv).rgb;
+            env = mix(env, planar, pEdge * clamp(0.42 + fresnel * 0.58, 0.0, 0.92));
+          }
+        }
+        float envAmt = uHasPlanar > 0.5
+          ? clamp(0.2 + fresnel * 0.7, 0.0, 0.86)
+          : clamp(0.1 + fresnel * 0.48, 0.0, 0.58);
+        water = mix(water, env, envAmt);
         float spec = pow(max(0.0, dot(reflect(-uSunDir, n), view)), 120.0);
         float specWide = pow(max(0.0, dot(reflect(-uSunDir, n), view)), 22.0);
         water += vec3(1.0, 0.97, 0.88) * spec * 1.35;
@@ -107,6 +143,8 @@ export function createWaterMaterial(kind: "canal" | "ocean" = "canal"): THREE.Sh
         water = mix(water, uColorFoam, clamp(foam * 0.22 * streak + edge * 0.55, 0.0, 0.62));
         float sss = pow(max(0.0, 1.0 - ndv), 1.4) * 0.16;
         water += vec3(0.05, 0.18, 0.24) * sss;
+        float sh = getShadowMask();
+        water *= mix(0.58, 1.0, sh);
         gl_FragColor = vec4(water, 1.0);
       }
     `,

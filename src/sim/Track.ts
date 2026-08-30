@@ -1,5 +1,5 @@
 import { CHECKPOINT_COUNT, LATERAL_PAD } from "./constants";
-import { clamp, lerp, wrap01 } from "./math";
+import { clamp, wrap01 } from "./math";
 import { ArcSpline, type ControlPoint, type Frame } from "./spline";
 import type { PickupKind } from "./BoostSystem";
 
@@ -81,24 +81,14 @@ export interface CourseQuery {
 
 export function queryCourse(track: TrackWorld, x: number, y: number, z: number, hintT = 0): CourseQuery {
   const main = track.main.project(x, y, z, hintT);
-  const cut = track.shortcut.project(x, y, z);
-  const mainHalf = main.frame.width * 0.5;
-  const cutHalf = cut.frame.width * 0.5;
-  const heightOk = Math.abs(y - cut.frame.y) < 7;
-  const onCut = heightOk && Math.abs(cut.lateral) < cutHalf + 5 && cut.planar < cutHalf + 10;
-  const preferCut = onCut && cut.planar + 1.5 < main.planar;
-  const hit = preferCut ? cut : main;
-  const half = preferCut ? cutHalf : mainHalf;
-  const courseT = preferCut
-    ? lerp(track.shortcutEnterT, track.shortcutExitT, wrap01(cut.frame.t))
-    : hit.frame.t;
+  const half = main.frame.width * 0.5;
   return {
-    frame: hit.frame,
-    lateral: hit.lateral,
-    onRibbon: Math.abs(hit.lateral) < half + LATERAL_PAD,
-    onShortcut: preferCut,
-    courseT,
-    waterY: hit.frame.y,
+    frame: main.frame,
+    lateral: main.lateral,
+    onRibbon: Math.abs(main.lateral) < half + LATERAL_PAD,
+    onShortcut: false,
+    courseT: main.frame.t,
+    waterY: main.frame.y,
     halfWidth: half,
   };
 }

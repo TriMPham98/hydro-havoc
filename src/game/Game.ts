@@ -44,6 +44,7 @@ export class Game {
   private lastScrape = 0;
   private playerBoat: BoatId = "skimmer";
   private courseId: CourseId = "riptide";
+  private visualCourse: CourseId | null = null;
 
   constructor(canvas: HTMLCanvasElement, root: HTMLElement) {
     this.overlay = new Overlay(root);
@@ -53,6 +54,7 @@ export class Game {
     this.renderer = new GameRenderer(canvas);
     this.track = buildCourse(this.courseId);
     this.renderer.loadTrack(this.track);
+    this.visualCourse = this.courseId;
 
     this.overlay.on({
       start: () => this.goSelect(),
@@ -78,7 +80,8 @@ export class Game {
       this.spawnIdle();
       this.last = performance.now();
       const tick = (now: number) => {
-        const raw = Math.min(MAX_FRAME_DT, (now - this.last) / 1000);
+        const elapsed = (now - this.last) / 1000;
+        const raw = Math.min(MAX_FRAME_DT, elapsed);
         this.last = now;
         this.acc += raw;
         while (this.acc >= FIXED_DT) {
@@ -87,6 +90,16 @@ export class Game {
         }
         this.time += raw;
         this.renderer.render(this.track, this.boats, this.player, raw, this.time, this.camMode());
+        if (this.overlay.showDebug) {
+          const stats = this.renderer.frameStats();
+          const fps = 1 / Math.max(elapsed, 1e-4);
+          this.overlay.setDebug(
+            `fps ${fps.toFixed(0)}  ${(elapsed * 1000).toFixed(1)}ms  dpr ${stats.dpr.toFixed(2)}\n` +
+              `draw ${stats.calls}  tris ${stats.triangles}\n` +
+              `spd ${this.player.speed.toFixed(1)}  t ${this.player.courseT.toFixed(3)}\n` +
+              `lap ${this.player.lap} cp ${this.player.lastCheckpoint} air ${this.player.airborne ? "Y" : "n"}  boost ${this.player.boostFuel.toFixed(2)}`,
+          );
+        }
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
@@ -124,14 +137,30 @@ export class Game {
     this.boats = [this.player];
   }
 
-  private spawnIdle(): void {
+  private bindCourse(): void {
     this.track = buildCourse(this.courseId);
     rollCrateKinds(this.track);
-    this.renderer.loadTrack(this.track);
+    if (this.visualCourse !== this.courseId) {
+      this.renderer.loadTrack(this.track);
+      this.visualCourse = this.courseId;
+    } else {
+      this.renderer.syncPickups(this.track);
+    }
+  }
+
+  private spawnIdle(): void {
+    this.bindCourse();
     this.player = createBoat("player", this.playerBoat, false);
     const pose = this.mode === "select" ? showcasePose(this.track) : gridPose(this.track, 0);
     copyPose(this.player, pose);
     this.player.courseT = pose.t;
+    if (this.mode === "title") {
+      this.player.speed = 22;
+      const h = headingVector(this.player.yaw);
+      this.player.vx = h.x * this.player.speed;
+      this.player.vz = h.z * this.player.speed;
+      this.player.throttle = 0.8;
+    }
     this.boats = [this.player];
     this.director = createDirector();
     if (this.mode === "select") this.renderer.camera.snapShowcase(this.player);
@@ -167,9 +196,7 @@ export class Game {
   private beginRace(): void {
     this.audio.resume();
     this.audio.setMusic("race");
-    this.track = buildCourse(this.courseId);
-    rollCrateKinds(this.track);
-    this.renderer.loadTrack(this.track);
+    this.bindCourse();
     resetRamTable();
     this.player = createBoat("player", this.playerBoat, false);
     const aiIds = assignAIBoats(this.playerBoat);
@@ -311,8 +338,7 @@ export class Game {
       this.overlay.show("results");
       this.audio.setMusic("title");
     } else if (this.mode === "title") {
-      this.player.throttle = 0.82;
-      this.player.steer = Math.sin(this.time * 0.2) * 0.12;
+      driveAI(this.player, this.track, this.player, true, [this.player], "demo");
       stepBoat(this.player, this.track, dt, 0, false);
     } else if (this.mode === "select") {
       this.parkShowcase();
@@ -321,11 +347,6 @@ export class Game {
     const boosting = this.player.boostHeld && (this.player.boostFuel > 0 || this.player.superBoostRemaining > 0);
     const voice = this.player.def.id === "ironwake" ? 2 : this.player.def.id === "vesper" ? 1 : 0;
     this.audio.setEngine(this.player.speed, boosting, voice, this.player.airborne);
-    if (this.overlay.showDebug) {
-      this.overlay.setDebug(
-        `fps ${(1 / dt).toFixed(0)}  spd ${this.player.speed.toFixed(1)}  t ${this.player.courseT.toFixed(3)}\nlap ${this.player.lap} cp ${this.player.lastCheckpoint} air ${this.player.airborne ? "Y" : "n"}  boost ${this.player.boostFuel.toFixed(2)}`,
-      );
-    }
   }
 
   private menus(): void {
