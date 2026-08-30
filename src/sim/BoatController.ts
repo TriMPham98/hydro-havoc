@@ -12,6 +12,7 @@ import type { Boat } from "./Boat";
 import { headingVector } from "./Boat";
 import { spendBoost, tickBay } from "./BoostSystem";
 import { tickJumpHold, tryHydroJump } from "./HydroJump";
+import { applyHyperSlide, holdSlideSpeed, SLIDE_CAP, SLIDE_ROLL } from "./HyperSlide";
 import { clamp, lerp, wrapAngle } from "./math";
 import { queryCourse, resolveBank, respawnPose, slowBandDrag } from "./Track";
 import type { TrackWorld } from "./Track";
@@ -25,6 +26,7 @@ export interface ControllerResult {
   jumped: boolean;
   usingBoost: boolean;
   usingSuper: boolean;
+  hyperSliding: boolean;
 }
 
 function steerCurve(speed: number, maxSpeed: number): number {
@@ -51,6 +53,7 @@ export function stepBoat(
     jumped: false,
     usingBoost: false,
     usingSuper: false,
+    hyperSliding: false,
   };
 
   if (locked || boat.finished) {
@@ -70,9 +73,11 @@ export function stepBoat(
   boat.prevBrake = boat.brake > 0.5;
   boat.prevBoost = boat.boostHeld;
 
-  const spend = locked ? { usingBoost: false, usingSuper: false } : spendBoost(boat, dt);
+  const slide = applyHyperSlide(boat);
+  const spend = locked ? { usingBoost: false, usingSuper: false } : spendBoost(boat, dt, slide.drain);
   result.usingBoost = spend.usingBoost;
   result.usingSuper = spend.usingSuper;
+  result.hyperSliding = slide.active;
 
   const def = boat.def;
   let maxSpeed = def.maxSpeed;
@@ -100,10 +105,12 @@ export function stepBoat(
       !spend.usingBoost && !spend.usingSuper && boat.throttle > 1
         ? Math.min(boat.throttle, 1 + RUBBER_BAND)
         : 1;
-    boat.speed = clamp(boat.speed, 0, maxSpeed * rubberCap);
-    const turn = def.turnRate * steerCurve(boat.speed, def.maxSpeed) * boat.steer * STEER_GAIN;
+    const speedCap = maxSpeed * rubberCap * (slide.active ? SLIDE_CAP : 1);
+    boat.speed = clamp(boat.speed, 0, speedCap);
+    holdSlideSpeed(boat, dt, maxSpeed);
+    const turn = def.turnRate * steerCurve(boat.speed, def.maxSpeed) * boat.steer * STEER_GAIN + slide.yawAdd;
     boat.yaw += turn * dt;
-    const slip = boat.speed * (1.15 / def.grip) * boat.steer * STEER_GAIN;
+    const slip = boat.speed * (1.15 / def.grip) * boat.steer * STEER_GAIN + slide.slipAdd;
     boat.vx = fwd.x * boat.speed + rightX * slip * 2.4;
     boat.vz = fwd.z * boat.speed + rightZ * slip * 2.4;
   } else {
@@ -213,7 +220,8 @@ export function stepBoat(
   const side = gerstnerHeight(boat.x + rightX * 1.4, boat.z + rightZ * 1.4, boat.time) -
     gerstnerHeight(boat.x - rightX * 1.4, boat.z - rightZ * 1.4, boat.time);
   const targetPitch = boat.airborne ? clamp(-boat.vy * 0.02, -0.45, 0.35) : clamp(look * 0.18 + q.frame.ty * 0.8, -0.4, 0.4);
-  const targetRoll = clamp(-boat.steer * 0.32 - side * 0.12, -0.45, 0.45);
+  const rollAmt = 0.32 + (boat.hyperSliding ? SLIDE_ROLL : 0);
+  const targetRoll = clamp(-boat.steer * rollAmt - side * 0.12, -0.62, 0.62);
   boat.pitch = lerp(boat.pitch, targetPitch, 1 - Math.pow(0.001, dt));
   boat.roll = lerp(boat.roll, targetRoll, 1 - Math.pow(0.0008, dt));
   boat.camShake = Math.max(0, boat.camShake - dt * 1.8);

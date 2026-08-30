@@ -77,7 +77,7 @@ export class Overlay {
         </div>
         <div class="help">
           <div><kbd>W</kbd> throttle <kbd>S</kbd> brake <kbd>A D</kbd> steer</div>
-          <div><kbd>Shift</kbd> boost · Hydro Jump: brake then boost · <kbd>Esc</kbd> pause</div>
+          <div><kbd>Shift</kbd> boost · Hyper Slide: boost+steer · Hydro Jump: brake then boost · <kbd>Esc</kbd> pause</div>
         </div>
         <div class="gate-lights" id="gate-lights" hidden>
           <i></i><i></i><i></i>
@@ -90,6 +90,7 @@ export class Overlay {
         <div class="pause-card">
           <h2>Paused</h2>
           <p>Hydro Jump: release throttle, tap brake, then tap boost. Hold brake after the tap to go higher.</p>
+          <p>Hyper Slide: hold boost and crank the stick in a corner. Extra yaw and speed, extra drain. Snaking is legal.</p>
           <p>Blue / red icons fill boost. Yellow is Super Boost. Ram a slower boat for +1s boost. Crates drop scrap or mines.</p>
           <div class="btn-row">
             <button class="primary" id="pause-resume">Resume</button>
@@ -200,6 +201,7 @@ export class Overlay {
     this.superFill.style.width = `${((player.superBoostRemaining + player.pendingSuper) / SUPER_DURATION) * 100}%`;
     const hot = player.boostHeld && player.jetBay <= 0 && (player.boostFuel > 0 || player.superBoostRemaining > 0);
     this.hud.classList.toggle("boosting", hot);
+    this.hud.classList.toggle("hyper-slide", player.hyperSliding);
     this.hud.classList.toggle("bay-lock", player.jetBay > 0);
     this.hud.classList.toggle("super-on", player.superBoostRemaining > 0 && player.boostHeld);
     this.countdown.textContent = label === "GO" ? "GO" : "";

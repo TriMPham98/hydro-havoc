@@ -77,12 +77,13 @@ export function activateSuper(boat: Boat): void {
   if (boat.jetBay <= 0) flushPending(boat);
 }
 
-export function spendBoost(boat: Boat, dt: number): { usingSuper: boolean; usingBoost: boolean } {
+export function spendBoost(boat: Boat, dt: number, rate = 1): { usingSuper: boolean; usingBoost: boolean } {
   const using = boat.boostHeld && !boat.finished && boat.jetBay <= 0;
   if (!using) return { usingSuper: false, usingBoost: false };
 
+  const burn = dt * Math.max(0, rate);
   if (boat.superBoostRemaining > 0) {
-    boat.superBoostRemaining = Math.max(0, boat.superBoostRemaining - dt);
+    boat.superBoostRemaining = Math.max(0, boat.superBoostRemaining - burn);
     if (boat.superBoostRemaining === 0) {
       boat.boostFuel = Math.min(BOOST_CAP, boat.boostFuel + boat.storedBoost);
       boat.storedBoost = 0;
@@ -91,7 +92,7 @@ export function spendBoost(boat: Boat, dt: number): { usingSuper: boolean; using
   }
 
   if (boat.boostFuel > 0) {
-    boat.boostFuel = Math.max(0, boat.boostFuel - dt);
+    boat.boostFuel = Math.max(0, boat.boostFuel - burn);
     return { usingSuper: false, usingBoost: true };
   }
 

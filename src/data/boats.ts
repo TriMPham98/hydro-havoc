@@ -18,6 +18,14 @@ export interface BoatDef {
   color: number;
   accent: number;
   cabin: number;
+  /** |steer| to engage Hyper Slide. Omit for the 0.55 default. */
+  slideSteer?: number;
+  /** Extra yaw as a fraction of turnRate while sliding (0.35 → ~1.35×). */
+  slideYaw?: number;
+  /** Boost burn multiplier while sliding. */
+  slideDrain?: number;
+  /** Extra lateral slip factor while sliding. */
+  slideSlip?: number;
 }
 
 export const BOATS: BoatDef[] = [
@@ -39,6 +47,10 @@ export const BOATS: BoatDef[] = [
     color: 0x1bb8c9,
     accent: 0xe7fbff,
     cabin: 0x08222a,
+    slideSteer: 0.52,
+    slideYaw: 0.35,
+    slideDrain: 1.8,
+    slideSlip: 0.55,
   },
   {
     id: "ironwake",
@@ -58,6 +70,10 @@ export const BOATS: BoatDef[] = [
     color: 0xc45a1a,
     accent: 0xffb020,
     cabin: 0x2a1208,
+    slideSteer: 0.68,
+    slideYaw: 0.18,
+    slideDrain: 2.1,
+    slideSlip: 0.32,
   },
   {
     id: "vesper",
@@ -77,6 +93,10 @@ export const BOATS: BoatDef[] = [
     color: 0x6b3cff,
     accent: 0xff3d6e,
     cabin: 0x12081c,
+    slideSteer: 0.48,
+    slideYaw: 0.58,
+    slideDrain: 1.5,
+    slideSlip: 0.85,
   },
 ];
 

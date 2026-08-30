@@ -89,6 +89,14 @@ describe("boost system", () => {
     expect(boat.boostFuel).toBe(2);
   });
 
+  it("burns faster at a higher spend rate", () => {
+    const boat = createBoat("p", "skimmer", false);
+    boat.boostFuel = 3;
+    boat.boostHeld = true;
+    spendBoost(boat, 1, 1.8);
+    expect(boat.boostFuel).toBeCloseTo(1.2);
+  });
+
   it("ignites the transom jet when a boost is picked up", () => {
     const boat = createBoat("p", "skimmer", false);
     collectPickup(boat, "blue");

@@ -45,6 +45,7 @@ export class Game {
   private lastPhase = "";
   private lastScrape = 0;
   private playerJumped = false;
+  private playerSliding = false;
   private jumpHintShown = false;
   private playerBoat: BoatId = "skimmer";
   private courseId: CourseId = "riptide";
@@ -102,7 +103,7 @@ export class Game {
             `fps ${fps.toFixed(0)}  ${(elapsed * 1000).toFixed(1)}ms  dpr ${stats.dpr.toFixed(2)}\n` +
               `draw ${stats.calls}  tris ${stats.triangles}\n` +
               `spd ${this.player.speed.toFixed(1)}  t ${this.player.courseT.toFixed(3)}\n` +
-              `lap ${this.player.lap} cp ${this.player.lastCheckpoint} air ${this.player.airborne ? "Y" : "n"}  boost ${this.player.boostFuel.toFixed(2)}`,
+              `lap ${this.player.lap} cp ${this.player.lastCheckpoint} air ${this.player.airborne ? "Y" : "n"}  boost ${this.player.boostFuel.toFixed(2)}  slide ${this.player.hyperSliding ? "Y" : "n"}`,
           );
         }
         requestAnimationFrame(tick);
@@ -226,6 +227,7 @@ export class Game {
     startCountdown(this.director);
     this.mode = "race";
     this.playerJumped = false;
+    this.playerSliding = false;
     this.jumpHintShown = false;
     this.overlay.show("hud");
     this.lastCount = "";
@@ -276,6 +278,10 @@ export class Game {
           this.playerJumped = true;
           this.overlay.flashHit("HYDRO JUMP");
         }
+        if (step.hyperSliding && !this.playerSliding) {
+          this.overlay.flashHit("HYPER SLIDE");
+        }
+        this.playerSliding = step.hyperSliding;
         if (step.landed) {
           this.audio.splash();
           this.renderer.slam(boat.x, boat.y + 0.4, boat.z);

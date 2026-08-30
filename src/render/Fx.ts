@@ -7,8 +7,8 @@ const SPRAY_COUNT = 400;
 const MIST_COUNT = 64;
 const TRAIL_COUNT = 120;
 const SPARK_COUNT = 360;
-/** Player-only: transom, two chines, two upright fans. AI stays on discs. */
-const PLAYER_SHEETS = 5;
+/** Player-only: transom, two chines, two upright fans, one Hyper Slide sheet. AI stays on discs. */
+const PLAYER_SHEETS = 6;
 const SLAM_RINGS = 2;
 const INV_2_32 = 2.3283064365386963e-10;
 
@@ -322,7 +322,7 @@ export class Fx {
     this.particles.add(this.spray, this.mist, this.trail, this.sparksPts);
     const sheetGeo = taperSheetGeometry();
     sheetGeo.rotateX(-Math.PI / 2);
-    const names = ["sprayTransom", "sprayChineL", "sprayChineR", "sprayFanL", "sprayFanR"];
+    const names = ["sprayTransom", "sprayChineL", "sprayChineR", "sprayFanL", "sprayFanR", "spraySlide"];
     for (let i = 0; i < PLAYER_SHEETS; i++) {
       const foam = i >= 3;
       const mesh = new THREE.Mesh(sheetGeo, sheetMaterial(foam));
@@ -466,10 +466,11 @@ export class Fx {
     }
     const speed = host.speed;
     const boost = host.boostHeld && (host.boostFuel > 0 || host.superBoostRemaining > 0) ? 1 : 0;
+    const slide = host.hyperSliding ? 1 : 0;
     const hullW = host.def.hullWidth;
     const hullL = host.def.hullLength;
-    const wet = Math.min(0.5, 0.14 + speed / 115 + boost * 0.1);
-    const transomLen = 5.6 + speed * 0.155 + boost * 2.5;
+    const wet = Math.min(0.58, 0.14 + speed / 115 + boost * 0.1 + slide * 0.08);
+    const transomLen = 5.6 + speed * 0.155 + boost * 2.5 + slide * 1.4;
     const transomWid = hullW * 1.22 + boost * 0.32;
     this.placeSheet(
       this.sheets[0],
@@ -483,17 +484,40 @@ export class Fx {
       0,
       wet,
     );
-    const chineLen = 2.6 + speed * 0.08 + boost * 0.7;
-    const chineWid = 1.15 + speed * 0.03;
+    const chineLen = 2.6 + speed * 0.08 + boost * 0.7 + slide * 2.4;
+    const chineWid = 1.15 + speed * 0.03 + slide * 0.35;
     const chineLat = hullW * 0.46;
     const chineAft = hullL * 0.12;
-    this.placeSheet(this.sheets[1], host, -chineLat, chineAft, 0.1, chineWid, chineLen, 0.32, -0.55, wet * 0.85);
-    this.placeSheet(this.sheets[2], host, chineLat, chineAft, 0.1, chineWid, chineLen, 0.32, 0.55, wet * 0.85);
+    const out = host.steer >= 0 ? -1 : 1;
+    const leftOut = slide && out < 0 ? 1.85 : 1 + slide * 0.2;
+    const rightOut = slide && out > 0 ? 1.85 : 1 + slide * 0.2;
+    this.placeSheet(this.sheets[1], host, -chineLat, chineAft, 0.1, chineWid, chineLen * leftOut, 0.32, -0.55, wet * (0.85 + slide * 0.12));
+    this.placeSheet(this.sheets[2], host, chineLat, chineAft, 0.1, chineWid, chineLen * rightOut, 0.32, 0.55, wet * (0.85 + slide * 0.12));
     const fanLen = 1.8 + speed * 0.055 + boost * 0.9;
     const fanWid = 0.85 + speed * 0.02;
     const fanAft = hullL * 0.46;
     this.placeSheet(this.sheets[3], host, -hullW * 0.4, fanAft, 0.18, fanWid, fanLen, 1.05, -0.35, wet * 0.7);
     this.placeSheet(this.sheets[4], host, hullW * 0.4, fanAft, 0.18, fanWid, fanLen, 1.05, 0.35, wet * 0.7);
+    const slideSheet = this.sheets[5];
+    if (slide && slideSheet) {
+      const slideLen = 8.4 + speed * 0.18 + boost * 1.6;
+      const slideWid = 1.7 + speed * 0.04;
+      this.placeSheet(
+        slideSheet,
+        host,
+        out * hullW * 0.58,
+        hullL * 0.08,
+        0.07,
+        slideWid,
+        slideLen,
+        0.18,
+        out * 0.74,
+        wet * 1.05,
+      );
+    } else if (slideSheet) {
+      slideSheet.visible = false;
+      (slideSheet.material as THREE.ShaderMaterial).uniforms.uOpacity.value = 0;
+    }
   }
 
   jetBurst(boat: Boat): void {
