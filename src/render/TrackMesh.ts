@@ -349,6 +349,13 @@ export function createTrackGroup(track: TrackWorld): {
   };
 
   addRibbon(track.main, true, copeMat, wallMat);
+  const cutCope = new THREE.MeshStandardMaterial({
+    color: 0xb88860,
+    map: copeTex,
+    roughness: 0.38,
+    metalness: 0.55,
+  });
+  addRibbon(track.shortcut, false, cutCope, wallMat);
 
   const start = track.start;
   const gate = new THREE.Group();
@@ -374,6 +381,8 @@ export function createTrackGroup(track: TrackWorld): {
 
   dressProps(group, track);
   dressCavern(group, track);
+  dressChannelMarkers(group, track);
+  dressSmashStack(group, track);
   dressLandmarks(group, track);
   dressSkyline(group, track);
   dressReef(group, track);
@@ -414,7 +423,7 @@ function dressProps(group: THREE.Group, track: TrackWorld): void {
   const pipePoses: Xform[] = [];
   const lampPoses: Xform[] = [];
   for (let i = 0; i < 18; i++) {
-    const f = track.main.getFrameAtT(0.58 + i * 0.008);
+    const f = track.main.getFrameAtT(0.7 + i * 0.006);
     const side = f.width * 0.5 + 5;
     const yaw = Math.atan2(f.tx, f.tz);
     pipePoses.push({ x: f.x + f.rx * side, y: f.y + 6.2, z: f.z + f.rz * side, ry: yaw, rz: Math.PI / 2 });
@@ -485,29 +494,158 @@ function dressProps(group: THREE.Group, track: TrackWorld): void {
   group.add(fall);
 }
 
-/** Indoor night beat — vault over the existing tunnel, not a second overlapping ribbon. */
+function vaultGeometry(spline: ArcSpline, t0: number, t1: number): THREE.BufferGeometry {
+  const length = Math.max(40, (t1 - t0) * spline.totalLength);
+  const segs = Math.max(12, Math.floor(length / 8));
+  const arc = 7;
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const cols = arc + 1;
+  for (let i = 0; i <= segs; i++) {
+    const t = t0 + (t1 - t0) * (i / segs);
+    const f = spline.getFrameAtT(t);
+    const hw = f.width * 0.5 + 1.15;
+    for (let a = 0; a <= arc; a++) {
+      const u = a / arc;
+      const ang = Math.PI * (1 - u);
+      const lat = Math.cos(ang) * hw;
+      const y = f.y + 1.2 + Math.sin(ang) * 13.2;
+      positions.push(f.x + f.rx * lat, y, f.z + f.rz * lat);
+      uvs.push(u, (i / segs) * length * 0.05);
+    }
+    if (i < segs) {
+      const row = i * cols;
+      const next = (i + 1) * cols;
+      for (let a = 0; a < arc; a++) {
+        const p0 = row + a;
+        const p1 = p0 + 1;
+        const p2 = next + a;
+        const p3 = p2 + 1;
+        indices.push(p0, p2, p1, p1, p2, p3);
+      }
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Indoor night beat — vault over the water, not roadside boxes. */
 function dressCavern(group: THREE.Group, track: TrackWorld): void {
-  const rock = new THREE.MeshStandardMaterial({ color: 0x1a2228, roughness: 0.92, metalness: 0.08 });
-  const rib = new THREE.MeshStandardMaterial({ color: 0x2ee0ff, emissive: 0x0a6a78, emissiveIntensity: 1.8 });
-  const wallPoses: Xform[] = [];
+  const t0 = 0.56;
+  const t1 = 0.68;
+  const rock = new THREE.MeshStandardMaterial({
+    color: 0x10161c,
+    roughness: 0.94,
+    metalness: 0.06,
+    side: THREE.DoubleSide,
+  });
+  const vault = new THREE.Mesh(vaultGeometry(track.main, t0, t1), rock);
+  vault.name = "neonVault";
+  vault.castShadow = true;
+  vault.receiveShadow = true;
+  group.add(vault);
+
+  const ribMat = new THREE.MeshStandardMaterial({ color: 0x1c2830, roughness: 0.72, metalness: 0.28 });
+  const trimMat = new THREE.MeshStandardMaterial({
+    color: 0x2ee0ff,
+    emissive: 0x0a6a78,
+    emissiveIntensity: 1.8,
+  });
+  const ribPoses: Xform[] = [];
   const trimPoses: Xform[] = [];
-  for (let i = 0; i < 10; i++) {
-    const t = 0.56 + i * 0.018;
+  const ribs = 14;
+  for (let i = 0; i < ribs; i++) {
+    const t = t0 + (i / (ribs - 1)) * (t1 - t0);
     const f = track.main.getFrameAtT(t);
     const yaw = Math.atan2(f.tx, f.tz);
-    const lat = f.width * 0.5 + 6;
-    for (const side of [-1, 1] as const) {
-      wallPoses.push({ x: f.x + f.rx * lat * side, y: f.y + 6, z: f.z + f.rz * lat * side, ry: yaw });
-      trimPoses.push({
-        x: f.x + f.rx * (lat - 1.4) * side,
-        y: f.y + 6,
-        z: f.z + f.rz * (lat - 1.4) * side,
+    const hw = f.width * 0.5 + 1.05;
+    for (let k = 0; k <= 6; k++) {
+      const u = k / 6;
+      const ang = Math.PI * (1 - u);
+      const lat = Math.cos(ang) * hw;
+      const py = f.y + 1.35 + Math.sin(ang) * 12.4;
+      ribPoses.push({
+        x: f.x + f.rx * lat,
+        y: py,
+        z: f.z + f.rz * lat,
         ry: yaw,
+        rx: ang - Math.PI / 2,
+      });
+      if (k >= 2 && k <= 4) {
+        trimPoses.push({
+          x: f.x + f.rx * lat * 0.92,
+          y: py - 0.15,
+          z: f.z + f.rz * lat * 0.92,
+          ry: yaw,
+        });
+      }
+    }
+  }
+  const ribsMesh = addInstanced(group, new THREE.BoxGeometry(0.55, 0.7, 1.8), ribMat, ribPoses);
+  if (ribsMesh) ribsMesh.name = "neonRib";
+  const trimMesh = addInstanced(group, new THREE.BoxGeometry(0.22, 0.22, 2.4), trimMat, trimPoses);
+  if (trimMesh) trimMesh.name = "neonTrim";
+}
+
+function dressChannelMarkers(group: THREE.Group, track: TrackWorld): void {
+  const steel = new THREE.MeshStandardMaterial({ color: 0x8a9096, roughness: 0.48, metalness: 0.55 });
+  const lamp = new THREE.MeshStandardMaterial({
+    color: 0xffc428,
+    emissive: 0xaa6010,
+    emissiveIntensity: 1.4,
+    roughness: 0.35,
+  });
+  const polePoses: Xform[] = [];
+  const lampPoses: Xform[] = [];
+  for (const g of track.buoyGates) {
+    const f = track.main.getFrameAtT(g.t);
+    const yaw = Math.atan2(f.tx, f.tz);
+    for (const side of [-1, 1] as const) {
+      const lat = (g.gap * 0.5) * side;
+      polePoses.push({
+        x: f.x + f.rx * lat,
+        y: f.y + 2.1,
+        z: f.z + f.rz * lat,
+        ry: yaw,
+      });
+      lampPoses.push({
+        x: f.x + f.rx * lat,
+        y: f.y + 4.35,
+        z: f.z + f.rz * lat,
       });
     }
   }
-  addInstanced(group, new THREE.BoxGeometry(3.2, 12, 10), rock, wallPoses);
-  addInstanced(group, new THREE.BoxGeometry(0.3, 10, 8), rib, trimPoses);
+  const poles = addInstanced(group, new THREE.CylinderGeometry(0.45, 0.55, 4.2, 8), steel, polePoses);
+  if (poles) poles.name = "channelMarker";
+  addInstanced(group, new THREE.SphereGeometry(0.42, 8, 6), lamp, lampPoses);
+}
+
+function dressSmashStack(group: THREE.Group, track: TrackWorld): void {
+  const crate = track.crates[0];
+  if (!crate) return;
+  const f = track.main.project(crate.x, crate.y, crate.z);
+  const yaw = Math.atan2(f.frame.tx, f.frame.tz);
+  const rust = new THREE.MeshStandardMaterial({ color: 0x6a3a22, roughness: 0.86, metalness: 0.22 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0x3d4750, metalness: 0.5, roughness: 0.42 });
+  const stack = new THREE.Group();
+  stack.name = "smashStack";
+  const poses: Xform[] = [
+    { x: 0, y: 1.1, z: 0, sx: 4.6, sy: 2.2, sz: 3.4 },
+    { x: 1.6, y: 3.0, z: -0.4, sx: 3.2, sy: 2.0, sz: 2.6, ry: 0.2 },
+    { x: -1.4, y: 3.05, z: 0.5, sx: 3.0, sy: 2.1, sz: 2.4, ry: -0.18 },
+    { x: 0.2, y: 5.05, z: 0.1, sx: 3.4, sy: 2.0, sz: 2.8, ry: 0.08 },
+    { x: 0.6, y: 6.9, z: -0.2, sx: 2.4, sy: 1.6, sz: 2.2, ry: 0.3 },
+  ];
+  addInstanced(stack, new THREE.BoxGeometry(1, 1, 1), rust, poses.slice(0, 3));
+  addInstanced(stack, new THREE.BoxGeometry(1, 1, 1), steel, poses.slice(3));
+  stack.position.set(crate.x, crate.y - 0.4, crate.z);
+  stack.rotation.y = yaw;
+  group.add(stack);
 }
 
 /** Original-IP landmarks well off the ribbon so distant-t never stacks. */

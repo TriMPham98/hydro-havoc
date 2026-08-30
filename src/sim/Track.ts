@@ -38,6 +38,12 @@ export interface SlowBand {
   drag: number;
 }
 
+/** Threadable harbor channel markers. Split the pair for a speed kiss. */
+export interface BuoyGate {
+  t: number;
+  gap: number;
+}
+
 export interface TrackWorld {
   id: string;
   name: string;
@@ -50,6 +56,7 @@ export interface TrackWorld {
   crates: CrateSlot[];
   mines: Mine[];
   slowBands: SlowBand[];
+  buoyGates: BuoyGate[];
   start: Frame;
   sectors: { until: number; name: string }[];
 }
@@ -74,6 +81,7 @@ export function makeTrack(mainPts: ControlPoint[], shortcutPts: ControlPoint[]):
     crates: [],
     mines: [],
     slowBands: [],
+    buoyGates: [],
     start: main.getFrameAtT(0),
     sectors: [{ until: 1, name: "CANAL" }],
   };
@@ -89,18 +97,74 @@ export interface CourseQuery {
   halfWidth: number;
 }
 
+const CUT_AIR = 7.8;
+const CUT_PLANAR_PAD = 4.2;
+const CUT_T_PAD = 0.055;
+
+export function mapShortcutToCourseT(track: TrackWorld, shortcutT: number): number {
+  const a = track.shortcutEnterT;
+  const b = track.shortcutExitT;
+  const u = clamp(shortcutT, 0, 1);
+  if (b >= a) return a + (b - a) * u;
+  return wrap01(a + (1 - a + b) * u);
+}
+
+function inTSpan(t: number, a: number, b: number, pad: number): boolean {
+  const lo = a - pad;
+  const hi = b + pad;
+  if (a <= b) return t >= lo && t <= hi;
+  return t >= lo || t <= hi;
+}
+
 export function queryCourse(track: TrackWorld, x: number, y: number, z: number, hintT = 0): CourseQuery {
   const main = track.main.project(x, y, z, hintT);
   const half = main.frame.width * 0.5;
+  const mainOn = Math.abs(main.lateral) < half + LATERAL_PAD;
+  const cut = track.shortcut.project(x, y, z);
+  const cutHalf = cut.frame.width * 0.5;
+  const mapped = mapShortcutToCourseT(track, cut.frame.t);
+  const windowed =
+    inTSpan(hintT, track.shortcutEnterT, track.shortcutExitT, CUT_T_PAD) ||
+    inTSpan(main.frame.t, track.shortcutEnterT, track.shortcutExitT, CUT_T_PAD) ||
+    inTSpan(mapped, track.shortcutEnterT, track.shortcutExitT, CUT_T_PAD);
+  const cutOn =
+    Math.abs(cut.lateral) < cutHalf + LATERAL_PAD &&
+    cut.planar < cutHalf + CUT_PLANAR_PAD &&
+    Math.abs(cut.height) < CUT_AIR;
+  const onMainSurface = mainOn && Math.abs(main.height) < 3.2;
+  const cutHigher = cut.frame.y - main.frame.y > 2.2;
+  const snapRisk = onMainSurface && (cutHigher || cut.planar > main.planar - 1.2);
+  const preferCut = cutOn && windowed && cut.planar + 0.8 < main.planar && !snapRisk;
+
+  if (preferCut) {
+    return {
+      frame: cut.frame,
+      lateral: cut.lateral,
+      onRibbon: true,
+      onShortcut: true,
+      courseT: mapped,
+      waterY: cut.frame.y,
+      halfWidth: cutHalf,
+    };
+  }
   return {
     frame: main.frame,
     lateral: main.lateral,
-    onRibbon: Math.abs(main.lateral) < half + LATERAL_PAD,
+    onRibbon: mainOn,
     onShortcut: false,
     courseT: main.frame.t,
     waterY: main.frame.y,
     halfWidth: half,
   };
+}
+
+export function buoyGateKiss(track: TrackWorld, prevT: number, nextT: number, lateral: number): number {
+  let kiss = 0;
+  for (const g of track.buoyGates) {
+    const half = g.gap * 0.5 - 1.2;
+    if (prevT < g.t && nextT >= g.t && Math.abs(lateral) < half) kiss = Math.max(kiss, 2.15);
+  }
+  return kiss;
 }
 
 export function resolveBank(

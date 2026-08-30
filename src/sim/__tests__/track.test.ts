@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { buildRiptideRefinery } from "../../data/tracks/riptideRefinery";
-import { attractPose, gridPose, queryCourse, resolveBank, respawnPose, showcasePose } from "../Track";
+import {
+  attractPose,
+  buoyGateKiss,
+  gridPose,
+  mapShortcutToCourseT,
+  queryCourse,
+  resolveBank,
+  respawnPose,
+  showcasePose,
+} from "../Track";
 import { hullOverlap, pairKey, resolveHulls, resetRamTable } from "../Collision";
 import { createBoat } from "../Boat";
+import { stepBoat } from "../BoatController";
 import { wrapAngle } from "../math";
 
 describe("track", () => {
@@ -152,11 +162,23 @@ describe("track", () => {
     expect(turn).toBeGreaterThan(10);
   });
 
-  it("keeps the main canal at least 20m wide", () => {
+  it("authors harbor / mesa / neon / reef width rhythm", () => {
     const track = buildRiptideRefinery();
-    for (let i = 0; i < 40; i++) {
-      expect(track.main.getFrameAtT(i / 40).width).toBeGreaterThanOrEqual(20);
-    }
+    expect(track.main.points.some((p) => Math.abs(p.width - 32) < 0.05)).toBe(true);
+    expect(track.main.points.some((p) => Math.abs(p.width - 14) < 0.05)).toBe(true);
+    expect(track.main.points.some((p) => Math.abs(p.width - 18) < 0.05)).toBe(true);
+    expect(track.main.points.some((p) => Math.abs(p.width - 26) < 0.05)).toBe(true);
+    expect(track.main.getFrameAtT(0.06).width).toBeGreaterThan(28);
+    expect(track.main.getFrameAtT(0.06).width).toBeLessThan(36);
+    const choke = track.main.getFrameAtT(0.3).width;
+    expect(choke).toBeGreaterThan(11);
+    expect(choke).toBeLessThan(16.5);
+    const neon = track.main.getFrameAtT(0.6).width;
+    expect(neon).toBeGreaterThan(16);
+    expect(neon).toBeLessThan(21);
+    const reef = track.main.getFrameAtT(0.84).width;
+    expect(reef).toBeGreaterThan(23);
+    expect(reef).toBeLessThan(29);
   });
 
   it("does not snap a surface boat onto the elevated shortcut", () => {
@@ -166,13 +188,105 @@ describe("track", () => {
     expect(q.onShortcut).toBe(false);
   });
 
-  it("parks the hidden cut: query never prefers the shortcut spline", () => {
+  it("queries onShortcut for a boat on the cut, not the main at the same T", () => {
     const track = buildRiptideRefinery();
     const mid = track.shortcut.getFrameAtT(0.5);
-    const q = queryCourse(track, mid.x, mid.y + 0.8, mid.z, 0.42);
-    expect(q.onShortcut).toBe(false);
+    const onCut = queryCourse(track, mid.x, mid.y + 0.8, mid.z, 0.42);
+    expect(onCut.onShortcut).toBe(true);
+    expect(onCut.onRibbon).toBe(true);
+    expect(onCut.courseT).toBeGreaterThan(track.shortcutEnterT);
+    expect(onCut.courseT).toBeLessThan(track.shortcutExitT);
+    const courseT = mapShortcutToCourseT(track, 0.5);
+    const main = track.main.getFrameAtT(courseT);
+    const onMain = queryCourse(track, main.x, main.y + 0.8, main.z, courseT);
+    expect(onMain.onShortcut).toBe(false);
+    expect(onMain.onRibbon).toBe(true);
+  });
+
+  it("maps shortcut arc onto main courseT between enter and exit", () => {
+    const track = buildRiptideRefinery();
+    const a = track.shortcut.getFrameAtT(0.2);
+    const b = track.shortcut.getFrameAtT(0.8);
+    const qa = queryCourse(track, a.x, a.y + 0.8, a.z, track.shortcutEnterT);
+    const qb = queryCourse(track, b.x, b.y + 0.8, b.z, track.shortcutExitT);
+    expect(qa.onShortcut).toBe(true);
+    expect(qb.onShortcut).toBe(true);
+    expect(qb.courseT).toBeGreaterThan(qa.courseT);
+    expect(qa.courseT).toBeGreaterThanOrEqual(track.shortcutEnterT - 0.02);
+    expect(qb.courseT).toBeLessThanOrEqual(track.shortcutExitT + 0.02);
+  });
+
+  it("launches a full-throttle boat airborne off the mesa downslope", () => {
+    const track = buildRiptideRefinery();
+    expect(airTimeOnSpan(track, 0.28, 0.38)).toBeGreaterThan(0.55);
+  });
+
+  it("launches a full-throttle boat airborne off the reef drop", () => {
+    const track = buildRiptideRefinery();
+    expect(airTimeOnSpan(track, 0.74, 0.86)).toBeGreaterThan(0.55);
+  });
+
+  it("kisses speed when a hull splits a harbor buoy pair", () => {
+    const track = buildRiptideRefinery();
+    const gate = track.buoyGates[1];
+    expect(gate).toBeTruthy();
+    const f = track.main.getFrameAtT(gate.t);
+    expect(buoyGateKiss(track, gate.t - 0.002, gate.t + 0.002, 0)).toBeGreaterThan(1);
+    expect(buoyGateKiss(track, gate.t - 0.002, gate.t + 0.002, f.width * 0.4)).toBe(0);
+    const boat = createBoat("p", "skimmer", false);
+    const before = track.main.getFrameAtT(gate.t - 0.01);
+    boat.x = before.x;
+    boat.y = before.y + 0.8;
+    boat.z = before.z;
+    boat.yaw = Math.atan2(before.tx, before.tz);
+    boat.courseT = gate.t - 0.01;
+    boat.speed = 22;
+    boat.throttle = 1;
+    boat.vx = before.tx * 22;
+    boat.vz = before.tz * 22;
+    const start = boat.speed;
+    for (let i = 0; i < 90; i++) {
+      boat.steer = 0;
+      stepBoat(boat, track, 1 / 60, i / 60, false);
+      if (boat.courseT >= gate.t) break;
+    }
+    expect(boat.speed).toBeGreaterThan(start + 0.8);
+  });
+
+  it("plants a crate on the racing line", () => {
+    const track = buildRiptideRefinery();
+    const onLine = track.crates.some((c) => {
+      const q = queryCourse(track, c.x, c.y, c.z, 0.83);
+      return q.onRibbon && Math.abs(q.lateral) < 3;
+    });
+    expect(onLine).toBe(true);
   });
 });
+
+function airTimeOnSpan(track: ReturnType<typeof buildRiptideRefinery>, t0: number, t1: number): number {
+  const boat = createBoat("p", "skimmer", false);
+  const f = track.main.getFrameAtT(t0);
+  boat.x = f.x;
+  boat.y = f.y + 0.8;
+  boat.z = f.z;
+  boat.yaw = Math.atan2(f.tx, f.tz);
+  boat.courseT = t0;
+  boat.speed = boat.def.maxSpeed;
+  boat.throttle = 1;
+  boat.vx = f.tx * boat.speed;
+  boat.vz = f.tz * boat.speed;
+  let maxAir = 0;
+  for (let i = 0; i < 420; i++) {
+    const q = queryCourse(track, boat.x, boat.y, boat.z, boat.courseT);
+    boat.yaw = Math.atan2(q.frame.tx, q.frame.tz);
+    boat.steer = 0;
+    boat.throttle = 1;
+    stepBoat(boat, track, 1 / 60, i / 60, false);
+    if (boat.airborne) maxAir = Math.max(maxAir, boat.airTime);
+    if (boat.courseT > t1 && boat.courseT < 0.95) break;
+  }
+  return maxAir;
+}
 
 describe("mighty hull", () => {
   it("awards boost only when speed delta is large", () => {
