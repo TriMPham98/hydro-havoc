@@ -110,7 +110,7 @@ export function resolveBank(
   vx: number,
   vz: number,
 ): { x: number; z: number; vx: number; vz: number; hit: boolean } {
-  const limit = q.halfWidth - 1.2;
+  const limit = q.halfWidth - 2.2;
   if (Math.abs(q.lateral) <= limit) return { x, z, vx, vz, hit: false };
   const sign = Math.sign(q.lateral) || 1;
   const over = Math.abs(q.lateral) - limit;
@@ -146,9 +146,9 @@ export function respawnPose(track: TrackWorld, checkpoint: number): { x: number;
 
 export function gridPose(track: TrackWorld, slot: number): { x: number; y: number; z: number; yaw: number; t: number } {
   const row = Math.floor(slot / 2);
-  const side = slot % 2 === 0 ? -3.4 : 3.4;
-  const spacing = 7;
-  const frontT = 0.05;
+  const side = slot % 2 === 0 ? -5.0 : 5.0;
+  const spacing = 12;
+  const frontT = 0.042;
   const t = wrap01(frontT - (row * spacing) / track.main.totalLength);
   const f = track.main.getFrameAtT(t);
   const maxLat = Math.max(2.8, f.width * 0.5 - 5.2);

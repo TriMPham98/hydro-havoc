@@ -6,12 +6,13 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import type { Boat } from "../sim/Boat";
 import type { TrackWorld } from "../sim/Track";
 import { BOATS } from "../data/boats";
-import { createBoatMesh, getBoatTemplate, preloadBoatMeshes } from "./BoatMesh";
+import { applyHullHeat, createBoatMesh, getBoatTemplate, preloadBoatMeshes } from "./BoatMesh";
 import { CameraRig, type CameraMode } from "./CameraRig";
 import { Fx } from "./Fx";
 import { createSkyDome } from "./SkyDome";
 import { createOceanMaterial } from "./WaterMaterial";
 import { createTrackGroup } from "./TrackMesh";
+import { WakeField } from "./Wake";
 
 export class GameRenderer {
   readonly renderer: THREE.WebGLRenderer;
@@ -22,6 +23,7 @@ export class GameRenderer {
   private waterMats: THREE.ShaderMaterial[] = [];
   private boats = new Map<string, THREE.Group>();
   private fx: Fx;
+  private wakes: WakeField;
   private hemi: THREE.HemisphereLight;
   private dir: THREE.DirectionalLight;
   private trackGroup: THREE.Group | null = null;
@@ -39,7 +41,7 @@ export class GameRenderer {
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -48,7 +50,7 @@ export class GameRenderer {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.camera = new CameraRig(window.innerWidth / window.innerHeight);
     this.scene.background = new THREE.Color(0x8ab0c4);
-    this.scene.fog = new THREE.FogExp2(0x8ab0c4, 0.00115);
+    this.scene.fog = new THREE.Fog(0x8ab0c4, 110, 780);
 
     this.hemi = new THREE.HemisphereLight(0xffe2c0, 0x1a3040, 1.12);
     this.scene.add(this.hemi);
@@ -74,7 +76,7 @@ export class GameRenderer {
     this.scene.add(ambient);
 
     this.oceanMat = createOceanMaterial();
-    const ocean = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400, 96, 96), this.oceanMat);
+    const ocean = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400, 48, 48), this.oceanMat);
     ocean.rotation.x = -Math.PI / 2;
     ocean.position.y = -1.6;
     ocean.name = "waterSurface";
@@ -82,7 +84,7 @@ export class GameRenderer {
     this.waterMats.push(this.oceanMat);
     this.waterMeshes.push(ocean);
 
-    this.cubeRT = new THREE.WebGLCubeRenderTarget(128, { generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+    this.cubeRT = new THREE.WebGLCubeRenderTarget(64, { generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
     this.cubeCam = new THREE.CubeCamera(2, 1600, this.cubeRT);
     this.scene.add(this.cubeCam);
 
@@ -93,6 +95,8 @@ export class GameRenderer {
 
     this.fx = new Fx(this.hemi);
     this.scene.add(this.fx.group);
+    this.wakes = new WakeField();
+    this.scene.add(this.wakes.group);
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera.camera));
@@ -135,7 +139,7 @@ export class GameRenderer {
     this.fx.rebuildPickups(track);
   }
 
-  syncBoats(boats: Boat[]): void {
+  syncBoats(boats: Boat[], time = 0): void {
     const seen = new Set<string>();
     for (const boat of boats) {
       seen.add(boat.id);
@@ -150,6 +154,7 @@ export class GameRenderer {
       if (!mesh) {
         mesh = createBoatMesh(boat.def);
         mesh.userData.hullId = boat.def.id;
+        this.bindBoatEnv(mesh);
         this.boats.set(boat.id, mesh);
         this.scene.add(mesh);
       }
@@ -165,6 +170,7 @@ export class GameRenderer {
         gm.opacity = hot ? (boat.superBoostRemaining > 0 ? 0.35 : 0.22) : 0;
         gm.color.set(boat.superBoostRemaining > 0 && hot ? 0xffe14a : 0x7af0ff);
       }
+      applyHullHeat(mesh, hot ? (boat.superBoostRemaining > 0 ? 1 : 0.6) : 0);
     }
     for (const [id, mesh] of this.boats) {
       if (!seen.has(id)) {
@@ -172,6 +178,7 @@ export class GameRenderer {
         this.boats.delete(id);
       }
     }
+    this.wakes.sync(boats, time);
   }
 
   render(
@@ -190,15 +197,17 @@ export class GameRenderer {
     const boosting = !!player && player.boostHeld && (player.boostFuel > 0 || player.superBoostRemaining > 0);
     const superOn = !!player && player.superBoostRemaining > 0 && player.boostHeld;
     this.fx.update(track, boats, dt, time, boosting);
-    this.syncBoats(boats);
+    this.syncBoats(boats, time);
     if (player) {
       this.tintWorld(player.courseT);
       if (cam === "showcase") this.camera.showcase(player, time, dt);
       else if (cam === "finish") this.camera.finish(player, dt, track);
       else this.camera.follow(player, dt, boosting, superOn, track);
       this.sky.position.copy(this.camera.camera.position);
-      this.cubeTick++;
-      if (this.cubeTick % 6 === 0) this.captureEnv(player.x, player.y + 8, player.z);
+      if (cam !== "showcase") {
+        this.cubeTick++;
+        if (this.cubeTick % 6 === 0) this.captureEnv(player.x, player.y + 8, player.z);
+      }
     }
     if (this.punch > 0) {
       this.hemi.intensity += this.punch * 0.7;
@@ -210,24 +219,33 @@ export class GameRenderer {
     this.composer.render();
   }
 
+  private bindBoatEnv(root: THREE.Object3D): void {
+    const env = this.cubeRT.texture;
+    root.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshPhysicalMaterial) {
+        if (obj.material.envMap === env) return;
+        obj.material.envMap = env;
+        obj.material.envMapIntensity = 1.15;
+        obj.material.needsUpdate = true;
+      }
+    });
+  }
+
   private captureEnv(x: number, y: number, z: number): void {
     this.cubeCam.position.set(x, y, z);
+    this.wakes.group.visible = false;
     for (const m of this.waterMeshes) m.visible = false;
+    const track = this.trackGroup;
+    const trackVisible = track ? track.visible : true;
+    if (track) track.visible = false;
     this.cubeCam.update(this.renderer, this.scene);
     for (const m of this.waterMeshes) m.visible = true;
+    if (track) track.visible = trackVisible;
+    this.wakes.group.visible = true;
     const env = this.cubeRT.texture;
     for (const mat of this.waterMats) {
       mat.uniforms.uEnv.value = env;
       mat.uniforms.uHasEnv.value = 1;
-    }
-    for (const mesh of this.boats.values()) {
-      mesh.traverse((obj) => {
-        if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshPhysicalMaterial) {
-          obj.material.envMap = env;
-          obj.material.envMapIntensity = 1.15;
-          obj.material.needsUpdate = true;
-        }
-      });
     }
   }
 
@@ -238,9 +256,10 @@ export class GameRenderer {
     const fog = this.fogDay.clone().lerp(this.fogDusk, warmth);
     if (cavern) fog.lerp(new THREE.Color(0x1c3040), 0.35);
     this.scene.background = fog;
-    if (this.scene.fog instanceof THREE.FogExp2) {
+    if (this.scene.fog instanceof THREE.Fog) {
       this.scene.fog.color.copy(fog);
-      this.scene.fog.density = 0.00105 + warmth * 0.00025 + (cavern ? 0.0008 : 0);
+      this.scene.fog.near = cavern ? 70 : 120;
+      this.scene.fog.far = cavern ? 520 : 820;
     }
     this.hemi.intensity = cavern ? 0.92 : 1.12;
     this.dir.intensity = cavern ? 1.15 : 1.85;

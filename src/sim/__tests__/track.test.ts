@@ -4,6 +4,7 @@ import { gridPose, queryCourse, resolveBank, respawnPose, showcasePose } from ".
 import { pairKey } from "../Collision";
 import { createBoat } from "../Boat";
 import { resolveHulls, resetRamTable } from "../Collision";
+import { wrapAngle } from "../math";
 
 describe("track", () => {
   it("builds a closed main ribbon with a shortcut", () => {
@@ -92,14 +93,27 @@ describe("track", () => {
       expect(q.onRibbon).toBe(true);
       expect(Math.abs(q.lateral)).toBeLessThan(q.halfWidth - 3.5);
     }
-    const behind = 24;
+    const behind = 17;
     const camX = a.x - Math.sin(a.yaw) * behind;
     const camZ = a.z - Math.cos(a.yaw) * behind;
     for (let i = 0; i < 4; i++) {
       const pose = gridPose(track, i);
       const along = (pose.x - camX) * Math.sin(a.yaw) + (pose.z - camZ) * Math.cos(a.yaw);
-      expect(along).toBeGreaterThan(10);
+      expect(along).toBeGreaterThan(3);
     }
+  });
+
+  it("bends enough that a lap is not a highway", () => {
+    const track = buildRiptideRefinery();
+    let turn = 0;
+    let prev = 0;
+    for (let i = 0; i <= 80; i++) {
+      const f = track.main.getFrameAtT(i / 80);
+      const yaw = Math.atan2(f.tx, f.tz);
+      if (i) turn += Math.abs(wrapAngle(yaw - prev));
+      prev = yaw;
+    }
+    expect(turn).toBeGreaterThan(10);
   });
 
   it("keeps the main canal at least 20m wide", () => {

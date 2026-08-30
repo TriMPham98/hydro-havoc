@@ -7,34 +7,35 @@ import {
 } from "../../sim/Track";
 import type { ControlPoint } from "../../sim/spline";
 
-/** Distant-t world tour: harbor → mesa → jump → neon city → reef. Never fold. */
+/** Distant-t world tour: harbor esses → mesa jump → neon chicane → reef hook. Never fold. */
 const MAIN: ControlPoint[] = [
   { x: 0, y: 0, z: 0, width: 28, bankHeight: 4.6 },
-  { x: 8, y: 0, z: 220, width: 26, bankHeight: 4.8 },
-  { x: 70, y: 0, z: 420, width: 22, bankHeight: 5.1 },
-  { x: 40, y: 0, z: 640, width: 22, bankHeight: 5.2 },
-  { x: 90, y: 0, z: 880, width: 22, bankHeight: 4.8 },
-  { x: 180, y: 11.8, z: 1080, width: 22, bankHeight: 3.8 },
-  { x: 360, y: 3.6, z: 1180, width: 24, bankHeight: 4.6 },
-  { x: 580, y: 0, z: 1160, width: 26, bankHeight: 4.8 },
-  { x: 780, y: 0, z: 980, width: 24, bankHeight: 5 },
-  { x: 860, y: 0, z: 740, width: 24, bankHeight: 5 },
-  { x: 880, y: 2.2, z: 500, width: 22, bankHeight: 4.2 },
-  { x: 840, y: 3.2, z: 280, width: 22, bankHeight: 4.0 },
-  { x: 700, y: 0, z: 120, width: 22, bankHeight: 4.4 },
-  { x: 500, y: 0, z: 20, width: 22, bankHeight: 4.6 },
-  { x: 280, y: 0, z: -80, width: 22, bankHeight: 4.6 },
-  { x: 90, y: 0, z: -140, width: 22, bankHeight: 5 },
-  { x: -40, y: 0, z: -90, width: 22, bankHeight: 5.1 },
-  { x: -20, y: 0, z: -30, width: 24, bankHeight: 4.8 },
+  { x: 38, y: 0, z: 170, width: 24, bankHeight: 4.8 },
+  { x: -44, y: 0, z: 340, width: 22, bankHeight: 5.0 },
+  { x: 72, y: 0, z: 510, width: 22, bankHeight: 5.1 },
+  { x: -28, y: 0, z: 670, width: 22, bankHeight: 5.2 },
+  { x: 96, y: 0, z: 830, width: 22, bankHeight: 4.8 },
+  { x: 36, y: 8.4, z: 950, width: 22, bankHeight: 3.8 },
+  { x: 210, y: 12.2, z: 1088, width: 22, bankHeight: 3.6 },
+  { x: 430, y: 4.2, z: 1170, width: 24, bankHeight: 4.6 },
+  { x: 640, y: 0, z: 1048, width: 24, bankHeight: 4.8 },
+  { x: 808, y: 0, z: 880, width: 22, bankHeight: 5.0 },
+  { x: 688, y: 0, z: 700, width: 22, bankHeight: 5.0 },
+  { x: 918, y: 2.0, z: 530, width: 22, bankHeight: 4.2 },
+  { x: 742, y: 3.1, z: 350, width: 22, bankHeight: 4.0 },
+  { x: 930, y: 0, z: 170, width: 22, bankHeight: 4.4 },
+  { x: 610, y: 0, z: 16, width: 22, bankHeight: 4.6 },
+  { x: 348, y: 0, z: -150, width: 22, bankHeight: 4.6 },
+  { x: 84, y: 0, z: -86, width: 22, bankHeight: 5.0 },
+  { x: -28, y: 0, z: -22, width: 24, bankHeight: 4.8 },
   { x: 0, y: 0, z: -14, width: 26, bankHeight: 4.6 },
 ];
 
 const SHORTCUT: ControlPoint[] = [
-  { x: 180, y: 12.6, z: 1080, width: 16, bankHeight: 3 },
-  { x: 340, y: 13.8, z: 1120, width: 16, bankHeight: 2.6 },
-  { x: 520, y: 8.2, z: 1080, width: 16, bankHeight: 2.8 },
-  { x: 700, y: 1.4, z: 900, width: 18, bankHeight: 3.6 },
+  { x: 210, y: 12.8, z: 1088, width: 16, bankHeight: 3 },
+  { x: 400, y: 14.0, z: 1155, width: 16, bankHeight: 2.6 },
+  { x: 575, y: 8.0, z: 1070, width: 16, bankHeight: 2.8 },
+  { x: 730, y: 1.4, z: 890, width: 18, bankHeight: 3.6 },
 ];
 
 export function buildRiptideRefinery(): TrackWorld {

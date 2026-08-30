@@ -67,8 +67,9 @@ export class CameraRig {
    */
   private chaseTarget(boat: Boat, boosting: boolean, superBoost: boolean, track?: TrackWorld): void {
     const speedK = Math.min(1, boat.speed / 32);
-    const back = 16.8 + (1 - speedK) * 7.2 + (superBoost ? 1.2 : boosting ? 0.5 : 0);
-    const height = 6.5 + (1 - speedK) * 2.1 + boat.speed * 0.008 + (boat.airborne ? 0.4 : 0);
+    const hull = boat.def.hullLength;
+    const back = hull * 0.42 + 9.2 + (1 - speedK) * 3.6 + (superBoost ? 1.1 : boosting ? 0.45 : 0);
+    const height = 4.6 + hull * 0.08 + (1 - speedK) * 1.15 + boat.speed * 0.006 + (boat.airborne ? 0.35 : 0);
     const fwd = headingVector(this.yaw);
     let x = boat.x - fwd.x * back;
     let z = boat.z - fwd.z * back;
@@ -78,7 +79,7 @@ export class CameraRig {
       z -= q.frame.rz * q.lateral * 0.7;
     }
     this.desired.set(x, this.rideY + height, z);
-    this.lookWant.set(boat.x + fwd.x * 6, this.rideY + 0.95, boat.z + fwd.z * 6);
+    this.lookWant.set(boat.x + fwd.x * 14, this.rideY + 1.05, boat.z + fwd.z * 14);
   }
 
   showcase(boat: Boat, _time: number, dt: number): void {
@@ -101,15 +102,20 @@ export class CameraRig {
     this.setFov(34);
   }
 
-  /** High circle around the parked hull so the path stays above the canal walls. */
+  /** Orbit over the water: side-to-bow swing, never a world-space circle into the banks. */
   private placeShowcase(boat: Boat): void {
-    const radius = 10.2;
+    const fwd = headingVector(boat.yaw);
+    const rightX = fwd.z;
+    const rightZ = -fwd.x;
+    const dist = 10.5;
+    const swing = Math.sin(this.orbit) * 0.58;
+    const back = 0.62 + Math.cos(this.orbit) * 0.22;
     this.desired.set(
-      boat.x + Math.cos(this.orbit) * radius,
+      boat.x - fwd.x * dist * back + rightX * dist * swing,
       boat.y + 6.4,
-      boat.z + Math.sin(this.orbit) * radius,
+      boat.z - fwd.z * dist * back + rightZ * dist * swing,
     );
-    this.lookWant.set(boat.x, boat.y + 0.7, boat.z);
+    this.lookWant.set(boat.x + fwd.x * 1.2, boat.y + 0.9, boat.z + fwd.z * 1.2);
   }
 
   finish(boat: Boat, dt: number, track?: TrackWorld): void {

@@ -67,7 +67,9 @@ export function createProceduralBoatMesh(def: BoatDef): THREE.Group {
     clearcoatRoughness: 0.08,
   });
 
+  hullMat.userData.heats = true;
   const hull = new THREE.Mesh(hullGeometry(def), hullMat);
+  hull.name = "hull";
   g.add(hull);
 
   const deck = new THREE.Mesh(
@@ -138,6 +140,7 @@ export function createProceduralBoatMesh(def: BoatDef): THREE.Group {
   if (def.id === "ironwake") {
     for (const x of [-def.hullWidth * 0.55, def.hullWidth * 0.55]) {
       const sponson = new THREE.Mesh(new THREE.CapsuleGeometry(0.22, def.hullLength * 0.42, 4, 8), hullMat);
+      sponson.name = x < 0 ? "Sponson_L" : "Sponson_R";
       sponson.rotation.x = Math.PI / 2;
       sponson.position.set(x, 0.22, -0.15);
       g.add(sponson);
@@ -158,6 +161,7 @@ export function createProceduralBoatMesh(def: BoatDef): THREE.Group {
   });
   g.userData.procedural = true;
   g.userData.hullId = def.id;
+  finishWetHull(g, def);
   return g;
 }
 
@@ -173,6 +177,215 @@ export const BOAT_GLB_URL: Record<BoatDef["id"], string> = {
 };
 
 const HIDDEN_HELPERS = new Set(["bowMarker", "sternMarker", "starboardMarker"]);
+
+const LOWER_HULL = new Set([
+  "Sponson_L",
+  "Sponson_R",
+  "Afterplane",
+  "SplashPlate",
+  "TrimTab_L",
+  "TrimTab_R",
+  "RamPlate_L",
+  "RamPlate_R",
+  "TransomPlate",
+  "SkidFin",
+  "Rudder",
+]);
+
+const WET_SKIP = new Set(["turbineGlow", "waterline", "chineSprayL", "chineSprayR"]);
+
+const WET_DARK = new THREE.Color(0x081018);
+
+type HullHeatSlot = {
+  mat: THREE.MeshPhysicalMaterial;
+  roughness: number;
+  clearcoat: number;
+  clearcoatRoughness: number;
+  emissive: THREE.Color;
+  emissiveIntensity: number;
+  glow: THREE.Color;
+};
+
+const hullHeat = new WeakMap<THREE.Object3D, HullHeatSlot[]>();
+
+function asPhysical(mat: THREE.Material): THREE.MeshPhysicalMaterial {
+  if (mat instanceof THREE.MeshPhysicalMaterial) return mat.clone();
+  if (mat instanceof THREE.MeshStandardMaterial) {
+    const p = new THREE.MeshPhysicalMaterial({
+      name: mat.name,
+      color: mat.color,
+      map: mat.map,
+      metalness: mat.metalness,
+      roughness: mat.roughness,
+      emissive: mat.emissive,
+      emissiveIntensity: mat.emissiveIntensity,
+      envMap: mat.envMap,
+      envMapIntensity: mat.envMapIntensity,
+      transparent: mat.transparent,
+      opacity: mat.opacity,
+      side: mat.side,
+    });
+    p.userData = { ...mat.userData };
+    p.clearcoat = 0.85;
+    p.clearcoatRoughness = 0.12;
+    return p;
+  }
+  return new THREE.MeshPhysicalMaterial({
+    color: 0x1a2830,
+    metalness: 0.3,
+    roughness: 0.28,
+    clearcoat: 0.85,
+    clearcoatRoughness: 0.14,
+  });
+}
+
+function wetStripMaterial(color: number, roughness: number): THREE.MeshPhysicalMaterial {
+  const mat = new THREE.MeshPhysicalMaterial({
+    color,
+    metalness: 0.28,
+    roughness,
+    clearcoat: 0.92,
+    clearcoatRoughness: 0.18,
+    envMapIntensity: 0.9,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
+  return mat;
+}
+
+function stainPhysical(mat: THREE.Material, toward: number, roughMul: number): THREE.MeshPhysicalMaterial {
+  if (mat instanceof THREE.MeshPhysicalMaterial && mat.userData.wetStain) return mat;
+  const p = asPhysical(mat);
+  p.color.lerp(WET_DARK, toward);
+  p.roughness = Math.min(0.52, p.roughness * roughMul);
+  p.clearcoat = Math.max(p.clearcoat, 0.9);
+  p.clearcoatRoughness = Math.min(0.26, p.clearcoatRoughness + 0.05);
+  p.userData.wetStain = true;
+  return p;
+}
+
+function stainNamedMeshes(root: THREE.Group, names: string[], toward: number, roughMul: number): void {
+  const stained = new Map<THREE.Material, THREE.MeshPhysicalMaterial>();
+  for (const name of names) {
+    const obj = root.getObjectByName(name);
+    if (!(obj instanceof THREE.Mesh)) continue;
+    const src = obj.material as THREE.Material;
+    let dst = stained.get(src);
+    if (!dst) {
+      dst = stainPhysical(src, toward, roughMul);
+      stained.set(src, dst);
+    }
+    obj.material = dst;
+  }
+}
+
+function addChineSpray(root: THREE.Group, def: BoatDef): void {
+  const railL = root.getObjectByName("SprayRail_L");
+  const railR = root.getObjectByName("SprayRail_R");
+  if (railL instanceof THREE.Mesh && railR instanceof THREE.Mesh) {
+    stainNamedMeshes(root, ["SprayRail_L", "SprayRail_R"], 0.62, 0.85);
+    return;
+  }
+  if (root.getObjectByName("chineSprayL")) return;
+  const mat = wetStripMaterial(0x152028, 0.32);
+  for (const [name, side] of [
+    ["chineSprayL", -1],
+    ["chineSprayR", 1],
+  ] as const) {
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.11, def.hullLength * 0.74), mat);
+    strip.name = name;
+    strip.position.set(side * def.hullWidth * 0.5, 0.22, -def.hullLength * 0.03);
+    strip.castShadow = false;
+    strip.receiveShadow = true;
+    root.add(strip);
+  }
+}
+
+function stainLowerHull(root: THREE.Group): void {
+  const stained = new Map<THREE.Material, THREE.MeshPhysicalMaterial>();
+  root.traverse((obj) => {
+    if (!(obj instanceof THREE.Mesh) || !LOWER_HULL.has(obj.name)) return;
+    const src = obj.material as THREE.Material;
+    let dst = stained.get(src);
+    if (!dst) {
+      dst = stainPhysical(src, 0.36, 0.8);
+      stained.set(src, dst);
+    }
+    obj.material = dst;
+  });
+}
+
+function shouldHeat(mat: THREE.MeshPhysicalMaterial): boolean {
+  if (mat.userData.heats || mat.userData.wetStain) return true;
+  return /_(Paint|Chrome|Gunmetal|Accent)$/i.test(mat.name);
+}
+
+function bindHullHeat(root: THREE.Group, def: BoatDef): void {
+  const remap = new Map<THREE.Material, THREE.Material>();
+  const slots: HullHeatSlot[] = [];
+  const glow = new THREE.Color(def.accent);
+  const apply = (obj: THREE.Mesh, mat: THREE.Material): THREE.Material => {
+    const hit = remap.get(mat);
+    if (hit) return hit;
+    if (
+      WET_SKIP.has(obj.name) ||
+      mat.transparent ||
+      /Glass|Glow|NavPort|NavStbd/i.test(mat.name)
+    ) {
+      remap.set(mat, mat);
+      return mat;
+    }
+    if (!(mat instanceof THREE.MeshPhysicalMaterial) && !(mat instanceof THREE.MeshStandardMaterial)) {
+      remap.set(mat, mat);
+      return mat;
+    }
+    const phys = mat instanceof THREE.MeshPhysicalMaterial ? mat.clone() : asPhysical(mat);
+    if (phys.transmission > 0.08) {
+      remap.set(mat, mat);
+      return mat;
+    }
+    remap.set(mat, phys);
+    if (shouldHeat(phys)) {
+      slots.push({
+        mat: phys,
+        roughness: phys.roughness,
+        clearcoat: phys.clearcoat,
+        clearcoatRoughness: phys.clearcoatRoughness,
+        emissive: phys.emissive.clone(),
+        emissiveIntensity: phys.emissiveIntensity,
+        glow: glow.clone(),
+      });
+    }
+    return phys;
+  };
+  root.traverse((obj) => {
+    if (!(obj instanceof THREE.Mesh)) return;
+    if (Array.isArray(obj.material)) obj.material = obj.material.map((m) => apply(obj, m));
+    else obj.material = apply(obj, obj.material);
+  });
+  hullHeat.set(root, slots);
+}
+
+function finishWetHull(root: THREE.Group, def: BoatDef): void {
+  addChineSpray(root, def);
+  stainLowerHull(root);
+  bindHullHeat(root, def);
+}
+
+export function applyHullHeat(root: THREE.Object3D, heat: number): void {
+  const slots = hullHeat.get(root);
+  if (!slots) return;
+  const t = heat < 0 ? 0 : heat > 1 ? 1 : heat;
+  for (const s of slots) {
+    s.mat.roughness = s.roughness * (1 - 0.42 * t);
+    s.mat.clearcoat = s.clearcoat + (1 - s.clearcoat) * 0.55 * t;
+    s.mat.clearcoatRoughness = s.clearcoatRoughness * (1 - 0.5 * t);
+    s.mat.emissive.lerpColors(s.emissive, s.glow, 0.28 * t);
+    s.mat.emissiveIntensity = s.emissiveIntensity + 0.32 * t;
+  }
+}
 
 function wireLoadedBoat(root: THREE.Group, def: BoatDef): void {
   root.traverse((obj) => {
@@ -208,6 +421,7 @@ function wireLoadedBoat(root: THREE.Group, def: BoatDef): void {
   }
   root.userData.procedural = false;
   root.userData.hullId = def.id;
+  finishWetHull(root, def);
 }
 
 function loadBoatTemplate(def: BoatDef): Promise<THREE.Group | null> {
@@ -242,11 +456,21 @@ export async function preloadBoatMeshes(defs: BoatDef[]): Promise<void> {
   await Promise.all(defs.map((d) => loadBoatTemplate(d)));
 }
 
+const NATIVE_HULL: Record<BoatDef["id"], { length: number; width: number }> = {
+  skimmer: { length: 5.4, width: 2.3 },
+  ironwake: { length: 6.2, width: 2.6 },
+  vesper: { length: 7.1, width: 2.05 },
+};
+
 export function createBoatMesh(def: BoatDef): THREE.Group {
   const tmpl = templates.get(def.id);
+  const native = NATIVE_HULL[def.id];
+  const visual = (def.hullLength / native.length + def.hullWidth / native.width) * 0.5;
   if (tmpl) {
     const clone = tmpl.clone(true);
-    wireLoadedBoat(clone, def);
+    wireLoadedBoat(clone, { ...def, hullLength: native.length, hullWidth: native.width });
+    clone.scale.setScalar(visual);
+    clone.userData.hullId = def.id;
     return clone;
   }
   void loadBoatTemplate(def);
