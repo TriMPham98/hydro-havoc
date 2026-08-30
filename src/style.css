@@ -329,6 +329,10 @@ button.ghost {
   box-shadow: inset 0 0 80px rgba(46, 230, 255, 0.28);
 }
 
+.hud.hyper-slide .vignette {
+  box-shadow: inset 0 0 100px rgba(46, 230, 255, 0.42);
+}
+
 .hud.super-on .vignette {
   box-shadow: inset 0 0 90px rgba(255, 225, 74, 0.32);
 }
@@ -373,6 +377,10 @@ button.ghost {
   color: var(--cyan);
   transform: scale(1.12);
   text-shadow: 0 0 16px rgba(46, 230, 255, 0.85);
+}
+
+.hud.hyper-slide #hud-speed {
+  transform: scale(1.18);
 }
 
 .hud.super-on #hud-speed {

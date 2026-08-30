@@ -38,6 +38,16 @@ describe("player spray sheets", () => {
     expect(transom.scale.z).toBeGreaterThan(chineL.scale.z);
     expect(transom.scale.z).toBeGreaterThan(8);
     expect((transom.material as THREE.ShaderMaterial).uniforms.uOpacity.value).toBeGreaterThan(0.2);
+    expect(named(fx.group, "spraySlide").visible).toBe(false);
+
+    player.hyperSliding = true;
+    player.steer = 1;
+    player.boostHeld = true;
+    player.boostFuel = 2;
+    fx.update(track, [player, ai], 0.016, 1, true);
+    const slide = named(fx.group, "spraySlide");
+    expect(slide.visible).toBe(true);
+    expect(slide.scale.z).toBeGreaterThan(chineL.scale.z);
 
     player.speed = 0;
     player.onWater = false;

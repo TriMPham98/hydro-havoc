@@ -19,6 +19,7 @@ export interface Boat {
   steer: number;
   brake: number;
   boostHeld: boolean;
+  hyperSliding: boolean;
   onWater: boolean;
   airborne: boolean;
   airTime: number;
@@ -68,6 +69,7 @@ export function createBoat(id: string, defId: BoatId, ai: boolean): Boat {
     steer: 0,
     brake: 0,
     boostHeld: false,
+    hyperSliding: false,
     onWater: true,
     airborne: false,
     airTime: 0,
