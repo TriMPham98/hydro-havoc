@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createBoat } from "../Boat";
-import { BLUE_BOOST, MINE_ARM, RED_BOOST } from "../constants";
+import { BLUE_BOOST, CRUSHER_DURATION, MINE_ARM, RED_BOOST } from "../constants";
 import { stepPickups } from "../Pickups";
-import { buildRiptideRefinery } from "../../data/tracks/riptideRefinery";
+import { buildRiptideRefinery, rollCrateKinds } from "../../data/tracks/riptideRefinery";
 
 describe("pickups", () => {
   it("lets the player collect boosts while AI skips them", () => {
@@ -73,17 +73,19 @@ describe("pickups", () => {
     ai.x = boostCrate.x;
     ai.y = boostCrate.y;
     ai.z = boostCrate.z;
-    expect(stepPickups(track, [ai, player], 0, 1)).toEqual([]);
+    expect(stepPickups(track, [ai, player], 0, 1).some((e) => e.kind === "crate-boost")).toBe(false);
     expect(ai.boostFuel).toBe(0);
+    expect(ai.pendingBoost).toBe(0);
     expect(boostCrate.taken).toBe(0);
 
+    player.boostHeld = true;
+    player.boostFuel = 1;
     player.x = boostCrate.x;
     player.y = boostCrate.y;
     player.z = boostCrate.z;
     const crateHits = stepPickups(track, [ai, player], 0, 2);
     expect(crateHits.some((e) => e.kind === "crate-boost" && e.boat === player)).toBe(true);
-    expect(player.pendingBoost).toBeGreaterThan(0);
-    expect(player.boostFuel).toBe(0);
+    expect(player.boostFuel).toBeGreaterThan(1);
 
     ai.x = mineCrate.x;
     ai.y = mineCrate.y;
@@ -101,5 +103,94 @@ describe("pickups", () => {
     const blasts = stepPickups(track, [ai], 0, 4);
     expect(blasts.some((e) => e.kind === "mine" && e.boat === ai)).toBe(true);
     expect(ai.speed).toBeLessThan(24);
+  });
+
+  it("does not collect boost crates unless the player is Mega Hull boosting", () => {
+    const track = buildRiptideRefinery();
+    const player = createBoat("p", "skimmer", false);
+    const crate = track.crates[0];
+    crate.kind = "boost";
+    crate.taken = 0;
+    player.x = crate.x;
+    player.y = crate.y;
+    player.z = crate.z;
+    player.boostHeld = false;
+    player.boostFuel = 2;
+    expect(stepPickups(track, [player], 0, 1).some((e) => e.kind === "crate-boost")).toBe(false);
+    expect(crate.taken).toBe(0);
+    expect(player.pendingBoost).toBe(0);
+  });
+
+  it("moves a crate when a boat overlaps it over a few steps", () => {
+    const track = buildRiptideRefinery();
+    const crate = track.crates[0];
+    crate.kind = "boost";
+    crate.taken = 0;
+    crate.vx = 0;
+    crate.vz = 0;
+    const x0 = crate.x;
+    const z0 = crate.z;
+    const ai = createBoat("a", "ironwake", true);
+    const player = createBoat("p", "skimmer", false);
+    player.x = 9000;
+    player.z = 9000;
+    ai.x = crate.x;
+    ai.y = crate.y;
+    ai.z = crate.z;
+    ai.vx = 18;
+    ai.speed = 18;
+    ai.yaw = Math.PI / 2;
+    for (let i = 0; i < 8; i++) stepPickups(track, [ai, player], 1 / 60, 1);
+    expect(Math.hypot(crate.x - x0, crate.z - z0)).toBeGreaterThan(0.4);
+    expect(crate.taken).toBe(0);
+    expect(ai.pendingBoost).toBe(0);
+    expect(ai.boostFuel).toBe(0);
+  });
+
+  it("lets AI push boost crates without collecting them", () => {
+    const track = buildRiptideRefinery();
+    const crate = track.crates.find((c) => c.kind === "boost") ?? track.crates[0];
+    crate.kind = "boost";
+    crate.taken = 0;
+    const ai = createBoat("a", "vesper", true);
+    ai.x = crate.x;
+    ai.y = crate.y;
+    ai.z = crate.z;
+    ai.vx = 12;
+    ai.vz = 4;
+    ai.speed = 12;
+    const ev = stepPickups(track, [ai], 1 / 60, 1);
+    expect(ev.some((e) => e.kind === "crate-boost")).toBe(false);
+    expect(crate.taken).toBe(0);
+    expect(ai.pendingBoost).toBe(0);
+    expect(Math.hypot(crate.vx, crate.vz)).toBeGreaterThan(0);
+  });
+
+  it("keeps exactly one hull crusher after rollCrateKinds", () => {
+    const track = buildRiptideRefinery();
+    for (const rng of [() => 0, () => 0.49, () => 0.99]) {
+      rollCrateKinds(track, rng);
+      expect(track.crates.filter((c) => c.kind === "crusher")).toHaveLength(1);
+    }
+    for (const crate of track.crates) crate.kind = "boost";
+    rollCrateKinds(track, () => 0.2);
+    expect(track.crates.filter((c) => c.kind === "crusher")).toHaveLength(1);
+  });
+
+  it("lets a boosting player smash a hull crusher crate", () => {
+    const track = buildRiptideRefinery();
+    const player = createBoat("p", "skimmer", false);
+    const crate = track.crates.find((c) => c.kind === "crusher") ?? track.crates[3];
+    crate.kind = "crusher";
+    crate.taken = 0;
+    player.x = crate.x;
+    player.y = crate.y;
+    player.z = crate.z;
+    player.boostHeld = true;
+    player.boostFuel = 1;
+    const hits = stepPickups(track, [player], 0, 1);
+    expect(hits.some((e) => e.kind === "crate-crusher" && e.boat === player)).toBe(true);
+    expect(player.crusherUntil).toBe(CRUSHER_DURATION);
+    expect(crate.taken).toBeGreaterThan(0);
   });
 });

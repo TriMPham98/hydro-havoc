@@ -8,7 +8,7 @@ import type { CameraMode } from "../render/CameraRig";
 import { copyPose, createBoat, headingVector, type Boat } from "../sim/Boat";
 import { assignAIBoats, driveAI } from "../sim/AIRacer";
 import { stepBoat } from "../sim/BoatController";
-import { resetRamTable, resolveHulls } from "../sim/Collision";
+import { fireCrusherShockwave, resetRamTable, resolveHulls, type CrushEvent } from "../sim/Collision";
 import { AI_COUNT, FIXED_DT, MAX_FRAME_DT } from "../sim/constants";
 import { boostLive, igniteJet } from "../sim/BoostSystem";
 import { lerp } from "../sim/math";
@@ -271,8 +271,13 @@ export class Game {
       for (const boat of this.boats) {
         if (boat.ai) driveAI(boat, this.track, this.player, true, this.boats);
       }
+      const crushes: CrushEvent[] = [];
       for (const boat of this.boats) {
         const step = stepBoat(boat, this.track, dt, this.director.time, false);
+        if (step.bankHit && boat.crusherUntil > 0) {
+          const crush = fireCrusherShockwave(boat, this.boats);
+          if (crush) crushes.push(crush);
+        }
         if (boat !== this.player) continue;
         if (step.jumped && !this.playerJumped) {
           this.playerJumped = true;
@@ -305,7 +310,7 @@ export class Game {
         }
       }
       if (this.director.phase === "racing") {
-        const rams = resolveHulls(this.boats, this.time);
+        const rams = resolveHulls(this.boats, this.time, crushes);
         for (const ram of rams) {
           if (!ram.awarded) continue;
           this.audio.ram();
@@ -316,6 +321,15 @@ export class Game {
             this.renderer.hitPunch(0.85);
           }
         }
+        for (const crush of crushes) {
+          this.audio.ram();
+          this.renderer.slam(crush.source.x, crush.source.y + 0.6, crush.source.z);
+          this.renderer.sparks(crush.source.x, crush.source.y + 1.2, crush.source.z);
+          if (crush.source === this.player || crush.victims.includes(this.player)) {
+            this.overlay.flashHit("CRUSH");
+            this.renderer.hitPunch(0.9);
+          }
+        }
         const ev = stepPickups(this.track, this.boats, dt, this.time);
         for (const e of ev) {
           if (e.kind === "mine") {
@@ -323,6 +337,14 @@ export class Game {
             this.renderer.slam(e.x, e.y + 0.6, e.z);
             this.renderer.hitPunch(e.boat === this.player ? 0.7 : 0.2);
             if (e.boat === this.player) this.overlay.flashHit("MINE");
+          } else if (e.kind === "crate-crusher") {
+            this.audio.pickup("super");
+            this.renderer.slam(e.x, e.y + 0.6, e.z);
+            this.renderer.sparks(e.x, e.y + 1.1, e.z);
+            if (e.boat === this.player) {
+              this.overlay.flashHit("HULL CRUSHER");
+              this.renderer.hitPunch(0.55);
+            }
           } else {
             this.audio.pickup(e.kind);
             if (e.boat === this.player) {

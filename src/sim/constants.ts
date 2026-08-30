@@ -14,6 +14,12 @@ export const JET_BAY_DELAY = 0.5;
 /** Pickup spool / title flash. Matches the bay so the plume lands as the can locks. */
 export const JET_IGNITE = JET_BAY_DELAY;
 export const RAM_BOOST = 1;
+/** Mega Hull siphon: seconds of fuel stolen on a ram. Super Mega Hull steals more. */
+export const RAM_SIPHON = 1;
+export const RAM_SIPHON_SUPER = 2;
+export const CRUSHER_DURATION = 7;
+export const CRUSHER_RADIUS = 14;
+export const CRUSHER_COOLDOWN = 1;
 export const JUMP_COST = 0.35;
 export const JUMP_WINDOW = 0.18;
 export const JUMP_MIN_SPEED = 12;

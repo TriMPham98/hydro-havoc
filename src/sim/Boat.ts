@@ -53,6 +53,10 @@ export interface Boat {
   stuntSpin: number;
   /** Seconds of no throttle/steer after a wipeout. */
   stuntStun: number;
+  /** Seconds remaining on Hull Crusher. */
+  crusherUntil: number;
+  /** Seconds until the next crusher shockwave can fire. */
+  crusherCooldown: number;
 }
 
 export function createBoat(id: string, defId: BoatId, ai: boolean): Boat {
@@ -104,6 +108,8 @@ export function createBoat(id: string, defId: BoatId, ai: boolean): Boat {
     stuntCount: 0,
     stuntSpin: 0,
     stuntStun: 0,
+    crusherUntil: 0,
+    crusherCooldown: 0,
   };
 }
 

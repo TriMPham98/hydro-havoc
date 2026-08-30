@@ -12,13 +12,17 @@ export interface PlacedPickup {
   taken: number;
 }
 
+export type CrateKind = "boost" | "mine" | "crusher";
+
 export interface CrateSlot {
   id: string;
   x: number;
   y: number;
   z: number;
-  kind: "boost" | "mine";
+  kind: CrateKind;
   taken: number;
+  vx: number;
+  vz: number;
 }
 
 export interface Mine {
