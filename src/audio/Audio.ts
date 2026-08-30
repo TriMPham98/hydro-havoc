@@ -436,9 +436,35 @@ export class GameAudio {
     this.tone(48, 0.22, "sine", 0.08);
   }
 
-  announce(): void {
-    this.tone(880, 0.08, "square", 0.045);
-    this.tone(1174, 0.1, "square", 0.04, 0.08);
+  /** Audio-only sting. Overlay text is owned by Game.flashHit. */
+  announce(cue: string): void {
+    const key = cue.trim().toUpperCase();
+    this.noiseBurst(0.08, 0.07, 2200, 420);
+    if (key === "HYDRO JUMP" || key === "HYPER JUMP") {
+      this.tone(660, 0.07, "square", 0.05);
+      this.tone(990, 0.1, "square", 0.045, 0.06);
+    } else if (key === "HYPER SLIDE") {
+      this.tone(880, 0.06, "square", 0.045);
+      this.tone(1320, 0.1, "triangle", 0.04, 0.05);
+    } else if (key === "STUNT") {
+      this.tone(740, 0.06, "square", 0.045);
+      this.tone(1174, 0.1, "triangle", 0.04, 0.05);
+    } else if (key === "HULL CRUSHER") {
+      this.tone(196, 0.08, "sawtooth", 0.06);
+      this.tone(147, 0.12, "square", 0.05, 0.06);
+    } else if (key === "WIPEOUT") {
+      this.tone(330, 0.08, "square", 0.05);
+      this.tone(196, 0.14, "sawtooth", 0.045, 0.07);
+    } else if (key === "FINISH") {
+      this.tone(523, 0.08, "square", 0.05);
+      this.tone(784, 0.12, "square", 0.045, 0.07);
+    } else if (key === "SUPER" || key === "HARBOR" || key === "MESA" || key === "NEON" || key === "REEF") {
+      this.tone(784, 0.07, "square", 0.05);
+      this.tone(1174, 0.1, "square", 0.04, 0.06);
+    } else {
+      this.tone(698, 0.07, "square", 0.04);
+      this.tone(932, 0.09, "square", 0.035, 0.06);
+    }
   }
 
   announceDown(): void {

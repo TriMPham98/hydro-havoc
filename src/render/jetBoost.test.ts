@@ -138,4 +138,36 @@ describe("jet boost rig", () => {
     expect(col.g).toBeGreaterThan(0.7);
     expect(col.r).toBeGreaterThan(col.b);
   });
+
+  it("deploys a second pair of jets on super when the bay is out", () => {
+    const { root } = rigRoot();
+    const rig = getJetRig(root)!;
+    expect(rig.extraCans.length).toBe(2);
+    expect(rig.extraPlumes.length).toBe(2);
+    expect(root.getObjectByName("superCan_0")).toBeTruthy();
+    expect(root.getObjectByName("superCan_1")).toBeTruthy();
+    expect(root.getObjectByName("jetPlume_super_0")).toBeTruthy();
+    step(root, { superOn: true, superFuel: true, hasFuel: true, bay: JET_IGNITE, ignite: JET_IGNITE });
+    expect(root.getObjectByName("superCan_0")?.visible).toBe(false);
+    step(root, { boosting: true, hasFuel: true, superOn: false, superFuel: false });
+    for (let i = 0; i < 24; i++) {
+      step(root, { boosting: true, hasFuel: true, superOn: false, superFuel: false, time: i / 60 });
+    }
+    expect(root.getObjectByName("superCan_0")?.visible).toBe(false);
+    expect(root.getObjectByName("superCan_1")?.visible).toBe(false);
+    for (let i = 0; i < 28; i++) {
+      step(root, {
+        boosting: true,
+        superOn: true,
+        superFuel: true,
+        hasFuel: true,
+        bay: 0,
+        time: 1 + i / 60,
+      });
+    }
+    expect(root.getObjectByName("superCan_0")?.visible).toBe(true);
+    expect(root.getObjectByName("superCan_1")?.visible).toBe(true);
+    expect(root.getObjectByName("jetPlume_super_0")?.visible).toBe(true);
+    expect(root.getObjectByName("jetPlume_0")?.visible).toBe(true);
+  });
 });

@@ -275,6 +275,7 @@ export class Game {
         if (step.jumped && !this.playerJumped) {
           this.playerJumped = true;
           this.overlay.flashHit("HYDRO JUMP");
+          this.audio.announce("HYDRO JUMP");
         }
         if (step.landed) {
           this.audio.splash();
@@ -306,6 +307,7 @@ export class Game {
           if (ram.attacker === this.player || ram.defender === this.player) {
             this.overlay.flashHit(ram.attacker === this.player ? "RAM +1" : "HIT");
             this.renderer.hitPunch(0.85);
+            this.audio.announce(ram.attacker === this.player ? "HULL CRUSHER" : "WIPEOUT");
           }
         }
         const ev = stepPickups(this.track, this.boats, dt, this.time);
@@ -314,12 +316,16 @@ export class Game {
             this.audio.mine();
             this.renderer.slam(e.x, e.y + 0.6, e.z);
             this.renderer.hitPunch(e.boat === this.player ? 0.7 : 0.2);
-            if (e.boat === this.player) this.overlay.flashHit("MINE");
+            if (e.boat === this.player) {
+              this.overlay.flashHit("MINE");
+              this.audio.announce("WIPEOUT");
+            }
           } else {
             this.audio.pickup(e.kind);
             if (e.boat === this.player) {
               this.overlay.flashHit(e.kind === "super" ? "SUPER" : "BOOST");
               this.renderer.igniteJet(e.boat);
+              if (e.kind === "super") this.audio.announce("SUPER");
             }
           }
         }
@@ -331,6 +337,7 @@ export class Game {
       if (this.director.phase === "closing" && this.lastPhase !== "closing") {
         this.overlay.flashHit("FINISH", 1600);
         this.audio.finish();
+        this.audio.announce("FINISH");
       }
       this.lastPhase = this.director.phase;
       const label = countdownLabel(this.director);

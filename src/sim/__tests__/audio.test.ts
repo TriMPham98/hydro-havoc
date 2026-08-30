@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { GameAudio } from "../../audio/Audio";
 import {
   fillCabinIR,
   fillFieldLoop,
@@ -68,5 +69,22 @@ describe("hull grain", () => {
     fillRaceMusic(race, 22050);
     expect(hullRms(race)).toBeGreaterThan(0.02);
     expect(hullRms(race)).toBeLessThan(0.45);
+  });
+});
+
+describe("announcer", () => {
+  it("accepts cabinet cues as a no-op before resume", () => {
+    const audio = new GameAudio();
+    expect(() => {
+      audio.announce("HYDRO JUMP");
+      audio.announce("HYPER JUMP");
+      audio.announce("HYPER SLIDE");
+      audio.announce("STUNT");
+      audio.announce("HULL CRUSHER");
+      audio.announce("WIPEOUT");
+      audio.announce("FINISH");
+      audio.announce("SUPER");
+      audio.announce("HARBOR");
+    }).not.toThrow();
   });
 });
