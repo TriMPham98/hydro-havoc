@@ -1,5 +1,6 @@
 import { BOATS, boatById, statBars, type BoatId } from "../data/boats";
 import type { CourseId } from "../data/tracks/catalog";
+import { sectorIdAt } from "../render/sectorLook";
 import type { Boat } from "../sim/Boat";
 import { BOOST_CAP, LAP_COUNT, SUPER_DURATION } from "../sim/constants";
 import { formatTime, type RaceDirector } from "../sim/RaceDirector";
@@ -283,8 +284,5 @@ export class Overlay {
 }
 
 function sectorName(t: number, _course: CourseId): string {
-  if (t < 0.22 || t > 0.92) return "HARBOR";
-  if (t < 0.42) return "MESA";
-  if (t < 0.68) return "NEON";
-  return "REEF";
+  return sectorIdAt(t);
 }

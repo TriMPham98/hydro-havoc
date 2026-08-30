@@ -11,9 +11,11 @@ import { BOATS } from "../data/boats";
 import { applyHullHeat, createBoatMesh, getBoatTemplate, preloadBoatMeshes } from "./BoatMesh";
 import { updateJet } from "./JetBoost";
 import { boostLive } from "../sim/BoostSystem";
+import { lerp } from "../sim/math";
 import { CameraRig, type CameraMode } from "./CameraRig";
 import { ContactField } from "./Contact";
 import { Fx } from "./Fx";
+import { sectorPalette } from "./sectorLook";
 import { createSkyDome } from "./SkyDome";
 import { createOceanMaterial } from "./WaterMaterial";
 import { createTrackGroup } from "./TrackMesh";
@@ -111,9 +113,16 @@ export class GameRenderer {
   private wakes: WakeField;
   private hemi: THREE.HemisphereLight;
   private dir: THREE.DirectionalLight;
+  private fill: THREE.DirectionalLight;
+  private rim: THREE.DirectionalLight;
+  private ambient: THREE.AmbientLight;
   private trackGroup: THREE.Group | null = null;
-  private fogDay = new THREE.Color(0x8ab0c4);
-  private fogDusk = new THREE.Color(0xc49a72);
+  private lookFog = new THREE.Color(0x8ab0c4);
+  private lookScratch = new THREE.Color();
+  private lookHemiInt = 1.12;
+  private lookSunInt = 1.85;
+  private lookExposure = 1.18;
+  private sectorBloom = 0.2;
   private cubeRT: THREE.WebGLCubeRenderTarget;
   private cubeCam: THREE.CubeCamera;
   private cubeTick = 0;
@@ -197,14 +206,14 @@ export class GameRenderer {
     this.dir.shadow.normalBias = 0.42;
     this.scene.add(this.dir);
     this.scene.add(this.dir.target);
-    const fill = new THREE.DirectionalLight(0x8ec8d8, 0.95);
-    fill.position.set(55, 40, -25);
-    this.scene.add(fill);
-    const rim = new THREE.DirectionalLight(0xffc878, 0.5);
-    rim.position.set(-20, 18, 70);
-    this.scene.add(rim);
-    const ambient = new THREE.AmbientLight(0x6a8894, 0.55);
-    this.scene.add(ambient);
+    this.fill = new THREE.DirectionalLight(0x8ec8d8, 0.95);
+    this.fill.position.set(55, 40, -25);
+    this.scene.add(this.fill);
+    this.rim = new THREE.DirectionalLight(0xffc878, 0.5);
+    this.rim.position.set(-20, 18, 70);
+    this.scene.add(this.rim);
+    this.ambient = new THREE.AmbientLight(0x6a8894, 0.55);
+    this.scene.add(this.ambient);
 
     this.oceanMat = createOceanMaterial();
     const ocean = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400, 48, 48), this.oceanMat);
@@ -337,12 +346,14 @@ export class GameRenderer {
       updateJet(mesh, {
         boosting: hot,
         superOn,
+        superFuel: boat.superBoostRemaining > 0,
         ignite: boat.jetIgnite,
         hasFuel,
         bay: boat.jetBay,
         speed: boat.speed,
         dt,
         time,
+        lowQuality: this.quality === "low",
       });
       const heat = superOn ? 1 : hot ? 0.6 : boat.jetIgnite > 0 ? Math.min(1, 0.35 + boat.jetIgnite) : 0;
       applyHullHeat(mesh, heat);
@@ -378,7 +389,7 @@ export class GameRenderer {
     this.contacts.sync(boats, time);
     if (player) {
       this.followSun(player);
-      this.tintWorld(player.courseT, boosting, superOn);
+      this.tintWorld(player.courseT, boosting, superOn, dt, track.sectors);
       if (cam === "showcase") this.camera.showcase(player, time, dt);
       else if (cam === "finish") this.camera.finish(player, dt, track);
       else this.camera.follow(player, dt, boosting, superOn, track, cam === "attract");
@@ -401,7 +412,9 @@ export class GameRenderer {
       this.renderer.toneMappingExposure += this.punch * 0.14;
       this.punch = Math.max(0, this.punch - dt * 4.2);
     }
-    this.bloom.strength = this.quality === "low" ? 0 : (superOn ? 0.38 : boosting ? 0.28 : 0.2) + this.punch * 0.35;
+    const heatBloom = superOn ? 0.38 : boosting ? 0.28 : 0.2;
+    this.bloom.strength =
+      this.quality === "low" ? 0 : Math.max(heatBloom, this.sectorBloom) + this.punch * 0.35;
     this.adaptPixelRatio(dt);
     this.renderer.info.reset();
     this.composer.render();
@@ -499,32 +512,56 @@ export class GameRenderer {
     }
   }
 
-  private tintWorld(t: number, boosting = false, superOn = false): void {
-    const cavern = t >= 0.52 && t < 0.78;
-    const warmth = t >= 0.22 && t < 0.48 ? 0.45 : 0.18;
-    const fog = this.fogDay.clone().lerp(this.fogDusk, warmth);
-    if (cavern) fog.lerp(new THREE.Color(0x1c3040), 0.35);
-    this.scene.background = fog;
+  private tintWorld(
+    t: number,
+    boosting = false,
+    superOn = false,
+    dt = 1 / 60,
+    sectors?: { until: number; name: string }[],
+  ): void {
+    const look = sectorPalette(t, sectors);
+    const k = 1 - Math.exp(-3.4 * Math.min(Math.max(dt, 1 / 240), 0.08));
+    this.lookFog.lerp(this.lookScratch.setHex(look.fog), k);
+    this.scene.background = this.lookFog;
     if (this.scene.fog instanceof THREE.Fog) {
-      this.scene.fog.color.copy(fog);
-      this.scene.fog.near = cavern ? 70 : 120;
-      this.scene.fog.far = cavern ? 520 : 820;
+      this.scene.fog.color.copy(this.lookFog);
+      this.scene.fog.near = lerp(this.scene.fog.near, look.fogNear, k);
+      this.scene.fog.far = lerp(this.scene.fog.far, look.fogFar, k);
     }
-    this.hemi.intensity = cavern ? 0.92 : 1.12;
-    this.dir.intensity = cavern ? 1.15 : 1.85;
-    this.dir.color.setHex(0xffd4a0);
-    this.renderer.toneMappingExposure = cavern ? 1.05 : 1.16;
+    this.hemi.color.lerp(this.lookScratch.setHex(look.hemiSky), k);
+    this.hemi.groundColor.lerp(this.lookScratch.setHex(look.hemiGround), k);
+    this.lookHemiInt = lerp(this.lookHemiInt, look.hemiInt, k);
+    this.hemi.intensity = this.lookHemiInt;
+    this.dir.color.lerp(this.lookScratch.setHex(look.sunColor), k);
+    this.lookSunInt = lerp(this.lookSunInt, look.sunInt, k);
+    this.dir.intensity = this.lookSunInt;
+    this.fill.color.lerp(this.lookScratch.setHex(look.fillColor), k);
+    this.fill.intensity = lerp(this.fill.intensity, look.fillInt, k);
+    this.rim.color.lerp(this.lookScratch.setHex(look.rimColor), k);
+    this.rim.intensity = lerp(this.rim.intensity, look.rimInt, k);
+    this.ambient.color.lerp(this.lookScratch.setHex(look.ambColor), k);
+    this.ambient.intensity = lerp(this.ambient.intensity, look.ambInt, k);
+    this.lookExposure = lerp(this.lookExposure, look.exposure, k);
+    this.renderer.toneMappingExposure = this.lookExposure;
+    this.sectorBloom = lerp(this.sectorBloom, look.bloom, k);
     this.skyMat.uniforms.uSunDir.value.copy(this.sunDir);
-    this.skyMat.uniforms.uHorizon.value.setHex(cavern ? 0x8aa0b0 : 0xe8b888);
-    this.skyMat.uniforms.uZenith.value.setHex(cavern ? 0x243850 : 0x3a6a9a);
+    this.skyMat.uniforms.uHorizon.value.lerp(this.lookScratch.setHex(look.horizon), k);
+    this.skyMat.uniforms.uZenith.value.lerp(this.lookScratch.setHex(look.zenith), k);
+    if (this.skyMat.uniforms.uNadir) {
+      this.skyMat.uniforms.uNadir.value.lerp(this.lookScratch.setHex(look.nadir), k);
+    }
     for (const mat of this.waterMats) {
       if (mat.uniforms.uSunDir) mat.uniforms.uSunDir.value.copy(this.sunDir);
-      if (mat.uniforms.uSky) mat.uniforms.uSky.value.setHex(cavern ? 0x8aa8b8 : 0xead2a8);
+      if (mat.uniforms.uSky) mat.uniforms.uSky.value.lerp(this.lookScratch.setHex(look.waterSky), k);
+      if (mat.uniforms.uColorDeep) mat.uniforms.uColorDeep.value.lerp(this.lookScratch.setHex(look.waterDeep), k);
+      if (mat.uniforms.uColorShallow) {
+        mat.uniforms.uColorShallow.value.lerp(this.lookScratch.setHex(look.waterShallow), k);
+      }
     }
-    this.hazeFarMat.uniforms.uColor.value.setHex(cavern ? 0x4a6880 : 0xc49a72);
-    this.hazeFarMat.uniforms.uOpacity.value = cavern ? 0.07 : 0.038 + warmth * 0.05;
-    this.hazeLowMat.uniforms.uColor.value.setHex(cavern ? 0x2a5060 : 0x8ab0c4);
-    this.hazeLowMat.uniforms.uOpacity.value = cavern ? 0.055 : 0.032 + warmth * 0.03;
+    this.hazeFarMat.uniforms.uColor.value.lerp(this.lookScratch.setHex(look.hazeFar), k);
+    this.hazeFarMat.uniforms.uOpacity.value = lerp(this.hazeFarMat.uniforms.uOpacity.value, look.hazeFarOp, k);
+    this.hazeLowMat.uniforms.uColor.value.lerp(this.lookScratch.setHex(look.hazeLow), k);
+    this.hazeLowMat.uniforms.uOpacity.value = lerp(this.hazeLowMat.uniforms.uOpacity.value, look.hazeLowOp, k);
     this.hazeBoostMat.uniforms.uColor.value.setHex(superOn ? 0xffe14a : 0x7af0ff);
     this.hazeBoostMat.uniforms.uOpacity.value = superOn ? 0.14 : boosting ? 0.09 : 0;
   }

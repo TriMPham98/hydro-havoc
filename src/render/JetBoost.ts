@@ -11,6 +11,9 @@ export type JetState = {
   speed: number;
   dt: number;
   time: number;
+  /** Super fuel in tank — extra cans show once the bay is out. */
+  superFuel?: boolean;
+  lowQuality?: boolean;
 };
 
 type Petal = { obj: THREE.Object3D; rest: THREE.Quaternion };
@@ -38,6 +41,8 @@ export type JetRig = {
   cores: THREE.Mesh[];
   glows: THREE.Mesh[];
   plumes: Plume[];
+  extraCans: THREE.Group[];
+  extraPlumes: Plume[];
   prop: THREE.Object3D | undefined;
   petal: number;
   power: number;
@@ -192,6 +197,61 @@ function collectNamed(root: THREE.Object3D, re: RegExp): THREE.Object3D[] {
   return out;
 }
 
+function extraJetsEnabled(): boolean {
+  if (typeof location === "undefined") return true;
+  const q = new URLSearchParams(location.search);
+  const raw = (q.get("quality") ?? "").toLowerCase();
+  return raw !== "low" && q.get("low") !== "1";
+}
+
+function attachExtraJets(
+  root: THREE.Group,
+  def: BoatDef,
+  sleds: Sled[],
+  radius: number,
+): { cans: THREE.Group[]; plumes: Plume[] } {
+  const cans: THREE.Group[] = [];
+  const plumes: Plume[] = [];
+  const gun = new THREE.MeshStandardMaterial({
+    color: 0x14181c,
+    metalness: 0.88,
+    roughness: 0.26,
+  });
+  const parents: { obj: THREE.Object3D; sign: number }[] = [];
+  if (sleds.length >= 2) {
+    const sorted = [...sleds].sort((a, b) => a.obj.position.x - b.obj.position.x);
+    parents.push({ obj: sorted[0].obj, sign: -1 }, { obj: sorted[sorted.length - 1].obj, sign: 1 });
+  } else if (sleds.length === 1) {
+    parents.push({ obj: sleds[0].obj, sign: -1 }, { obj: sleds[0].obj, sign: 1 });
+  } else {
+    parents.push({ obj: root, sign: -1 }, { obj: root, sign: 1 });
+  }
+  const lateral = def.id === "vesper" ? 0.2 : def.id === "ironwake" ? 0.36 : 0.28;
+  const transom = def.hullLength * 0.46;
+  parents.forEach((p, i) => {
+    const group = new THREE.Group();
+    group.name = `superCan_${i}`;
+    if (p.obj === root) {
+      group.position.set(p.sign * (lateral + 0.22), 0.38, -transom - 0.12);
+    } else {
+      const out = p.obj.position.x !== 0 ? Math.sign(p.obj.position.x) : p.sign;
+      group.position.set(out * lateral, 0.02, -0.08);
+    }
+    const housing = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.95, radius * 1.15, 0.42, 8), gun);
+    housing.name = `superCanHousing_${i}`;
+    housing.rotation.x = Math.PI / 2;
+    const plume = makePlume(10 + i, radius, def.accent);
+    plume.group.name = `jetPlume_super_${i}`;
+    plume.group.position.z = -0.22;
+    group.add(housing, plume.group);
+    group.visible = false;
+    p.obj.add(group);
+    cans.push(group);
+    plumes.push(plume);
+  });
+  return { cans, plumes };
+}
+
 export function getJetRig(root: THREE.Object3D): JetRig | undefined {
   return jetRigs.get(root);
 }
@@ -283,6 +343,7 @@ export function bindJet(root: THREE.Group, def: BoatDef): JetRig {
 
   const fans = collectNamed(root, /^TurbineFan/);
   const prop = root.getObjectByName("propeller") ?? undefined;
+  const extras = extraJetsEnabled() ? attachExtraJets(root, def, sleds, radius) : { cans: [], plumes: [] };
 
   const rig: JetRig = {
     fans,
@@ -292,6 +353,8 @@ export function bindJet(root: THREE.Group, def: BoatDef): JetRig {
     cores,
     glows,
     plumes,
+    extraCans: extras.cans,
+    extraPlumes: extras.plumes,
     prop,
     petal: 0,
     power: 0,
@@ -411,28 +474,36 @@ export function updateJet(root: THREE.Object3D, state: JetState): void {
     glow.scale.set(s * 0.7, s * 1.15, s * 0.7);
   }
 
-  for (const plume of rig.plumes) {
-    plume.group.visible = hot;
+  const paintPlume = (plume: Plume, gold: boolean, live: boolean): void => {
+    plume.group.visible = live;
     const coreMat = plume.core.material as THREE.ShaderMaterial;
     const washMat = plume.wash.material as THREE.ShaderMaterial;
     const flashMat = plume.flash.material as THREE.ShaderMaterial;
     coreMat.uniforms.uTime.value = state.time;
     washMat.uniforms.uTime.value = state.time;
-    coreMat.uniforms.uColor.value.copy(coreCol);
-    washMat.uniforms.uColor.value.copy(plumeCol);
-    flashMat.uniforms.uColor.value.copy(coreCol);
-    coreMat.uniforms.uOpacity.value = rig.power * 0.95;
-    washMat.uniforms.uOpacity.value = rig.power * 0.72;
-    flashMat.uniforms.uOpacity.value = rig.power * 0.8;
+    coreMat.uniforms.uColor.value.copy(gold ? GOLD_WHITE : coreCol);
+    washMat.uniforms.uColor.value.copy(gold ? GOLD : plumeCol);
+    flashMat.uniforms.uColor.value.copy(gold ? GOLD_WHITE : coreCol);
+    coreMat.uniforms.uOpacity.value = live ? rig.power * 0.95 : 0;
+    washMat.uniforms.uOpacity.value = live ? rig.power * 0.72 : 0;
+    flashMat.uniforms.uOpacity.value = live ? rig.power * 0.8 : 0;
     const len = 0.35 + rig.power * 1.15;
     const fat = 0.4 + rig.power * 0.95;
     plume.core.scale.set(fat * 0.72, len * 1.15, fat * 0.72);
     plume.wash.scale.set(fat * 1.25, len * 0.85, fat * 1.25);
     const flashS = 0.45 + rig.power * 1.4;
     plume.flash.scale.setScalar(flashS);
-    plume.light.color.copy(plumeCol);
-    plume.light.intensity = rig.power * (superCol ? 4.2 : 2.8);
-  }
+    plume.light.color.copy(gold ? GOLD : plumeCol);
+    plume.light.intensity = live ? rig.power * (gold ? 4.2 : superCol ? 4.2 : 2.8) : 0;
+    plume.light.visible = live;
+  };
+
+  for (const plume of rig.plumes) paintPlume(plume, superCol, hot);
+
+  const superFuel = state.superFuel ?? state.superOn;
+  const extraOn = !state.lowQuality && superFuel && fireGate > 0.04;
+  for (const can of rig.extraCans) can.visible = extraOn;
+  for (const plume of rig.extraPlumes) paintPlume(plume, true, extraOn && hot);
 }
 
 export function addProceduralJet(root: THREE.Group, def: BoatDef): void {

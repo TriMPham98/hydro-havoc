@@ -39,11 +39,12 @@ export class CameraRig {
     this.yaw = boat.yaw;
     this.rideY = boat.y;
     this.primed = true;
-    this.chaseTarget(boat, false, false, track, wide);
+    const stunt = boat.airborne && !wide;
+    this.chaseTarget(boat, false, false, track, wide, stunt);
     this.camera.position.copy(this.desired);
     this.look.copy(this.lookWant);
     this.camera.lookAt(this.look);
-    this.setFov(wide ? 62 : 56);
+    this.setFov(wide ? 62 : stunt ? 62 : 56);
   }
 
   follow(boat: Boat, dt: number, boosting: boolean, superBoost: boolean, track?: TrackWorld, wide = false): void {
@@ -51,21 +52,30 @@ export class CameraRig {
       this.snap(boat, track, wide);
       return;
     }
+    const stunt = boat.airborne && !wide;
     this.yaw += wrapAngle(boat.yaw - this.yaw) * follow(dt, 3.6);
     this.rideY = lerp(this.rideY, boat.y, follow(dt, 4.4));
-    this.chaseTarget(boat, boosting, superBoost, track, wide);
+    this.chaseTarget(boat, boosting, superBoost, track, wide, stunt);
     const k = follow(dt, 7.6);
     this.camera.position.lerp(this.desired, k);
     this.look.lerp(this.lookWant, k);
     this.camera.lookAt(this.look);
-    this.setFov(lerp(this.camera.fov, superBoost ? 64 : boosting ? 59 : 56, follow(dt, 5)));
+    const fov = wide ? 62 : superBoost ? 64 : stunt ? 62 : boosting ? 59 : 56;
+    this.setFov(lerp(this.camera.fov, fov, follow(dt, 5)));
   }
 
   /**
    * Heading chase, pulled toward the canal center. Extra back/height at low
    * speed so the start grid is in front of the lens, not inside it.
    */
-  private chaseTarget(boat: Boat, boosting: boolean, superBoost: boolean, track?: TrackWorld, wide = false): void {
+  private chaseTarget(
+    boat: Boat,
+    boosting: boolean,
+    superBoost: boolean,
+    track?: TrackWorld,
+    wide = false,
+    stunt = false,
+  ): void {
     const speedK = Math.min(1, boat.speed / 32);
     const hull = boat.def.hullLength;
     const back =
@@ -73,13 +83,14 @@ export class CameraRig {
       9.2 +
       (1 - speedK) * 1.4 +
       (superBoost ? 1.1 : boosting ? 0.45 : 0) +
+      (stunt ? 0.8 : 0) +
       (wide ? 10 : 0);
     const height =
       4.6 +
       hull * 0.08 +
       (1 - speedK) * 0.55 +
       boat.speed * 0.006 +
-      (boat.airborne ? 0.35 : 0) +
+      (stunt ? -0.65 : 0) +
       (wide ? 2.6 : 0);
     const fwd = headingVector(this.yaw);
     let x = boat.x - fwd.x * back;
@@ -91,8 +102,8 @@ export class CameraRig {
       z -= q.frame.rz * q.lateral * pull;
     }
     this.desired.set(x, this.rideY + height, z);
-    const lookAhead = 5.5 + 8.5 * speedK;
-    this.lookWant.set(boat.x + fwd.x * lookAhead, this.rideY + 1.05, boat.z + fwd.z * lookAhead);
+    const lookAhead = 5.5 + 8.5 * speedK + (stunt ? 3.4 : 0);
+    this.lookWant.set(boat.x + fwd.x * lookAhead, this.rideY + (stunt ? 0.45 : 1.05), boat.z + fwd.z * lookAhead);
   }
 
   showcase(boat: Boat, _time: number, dt: number): void {
