@@ -13,7 +13,7 @@ import { headingVector } from "./Boat";
 import { spendBoost, tickBay } from "./BoostSystem";
 import { tickJumpHold, tryHydroJump } from "./HydroJump";
 import { clamp, lerp, wrapAngle } from "./math";
-import { queryCourse, resolveBank, respawnPose, slowBandDrag } from "./Track";
+import { buoyGateKiss, queryCourse, resolveBank, respawnPose, slowBandDrag } from "./Track";
 import type { TrackWorld } from "./Track";
 import { gerstnerHeight } from "./waterHeight";
 import { updateLapAndCheckpoints } from "./progress";
@@ -144,6 +144,14 @@ export function stepBoat(
   const silt = slowBandDrag(track, boat.courseT, q.lateral);
   if (silt > 0 && !boat.airborne) {
     boat.speed = Math.max(0, boat.speed - silt * dt);
+  }
+  const kiss = buoyGateKiss(track, prevT, boat.courseT, q.lateral);
+  if (kiss > 0 && !boat.airborne) {
+    const cap = spend.usingSuper ? def.superBoostMaxSpeed : spend.usingBoost ? def.boostMaxSpeed : def.maxSpeed;
+    boat.speed = Math.min(cap * 1.03, boat.speed + kiss);
+    const h = headingVector(boat.yaw);
+    boat.vx = h.x * boat.speed;
+    boat.vz = h.z * boat.speed;
   }
 
   const wave = gerstnerHeight(boat.x, boat.z, boat.time, q.onShortcut ? 0.35 : 1);

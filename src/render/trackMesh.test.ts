@@ -43,8 +43,8 @@ describe("createTrackGroup", () => {
     const stats = census(group);
     expect(stats.points).toBe(0);
     expect(stats.instanced).toBeGreaterThan(20);
-    expect(stats.meshes).toBeLessThan(90);
-    expect(stats.geos).toBeLessThan(80);
+    expect(stats.meshes).toBeLessThan(100);
+    expect(stats.geos).toBeLessThan(90);
   });
 });
 
@@ -76,18 +76,20 @@ describe("canal ribbon budget", () => {
     expect(WATER_WIDTH_SEGS).toBeLessThanOrEqual(6);
   });
 
-  it("builds one main water ribbon with far fewer tris than the old 2.2m×12 mesh", () => {
+  it("builds main and shortcut water ribbons with far fewer tris than the old 2.2m×12 mesh", () => {
     const track = buildRiptideRefinery();
     const { group } = createTrackGroup(track);
     const waters = meshByName(group, "canalWater");
-    expect(waters).toHaveLength(1);
-    const water = waters[0];
-    expect(water.receiveShadow).toBe(true);
-    const tris = triangleCount(water);
+    expect(waters).toHaveLength(2);
+    const mainWater = waters.reduce((a, b) => (triangleCount(a) > triangleCount(b) ? a : b));
+    expect(mainWater.receiveShadow).toBe(true);
+    const tris = triangleCount(mainWater);
     const oldTris = Math.floor(track.main.totalLength / 2.2) * 12 * 2;
     const segs = Math.max(24, Math.floor(track.main.totalLength / WATER_ALONG));
     expect(tris).toBe(segs * WATER_WIDTH_SEGS * 2);
     expect(tris).toBeLessThan(oldTris * 0.35);
     expect(tris).toBeGreaterThan(2000);
+    const cutWater = waters.find((w) => w !== mainWater)!;
+    expect(triangleCount(cutWater)).toBeGreaterThan(80);
   });
 });

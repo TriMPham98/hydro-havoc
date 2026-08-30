@@ -125,7 +125,7 @@ describe("pickup art", () => {
 });
 
 describe("canal walls", () => {
-  it("tiles rusted concrete on the main ribbon only", () => {
+  it("tiles rusted concrete on the main and shortcut ribbons", () => {
     const track = buildRiptideRefinery();
     const { group } = createTrackGroup(track);
     const walls: THREE.Mesh[] = [];
@@ -137,9 +137,9 @@ describe("canal walls", () => {
       if (obj.name === "canalCoping") copes.push(obj);
       if (obj.name === "canalWater") waters.push(obj);
     });
-    expect(waters.length).toBe(1);
-    expect(walls.length).toBe(2);
-    expect(copes.length).toBe(2);
+    expect(waters.length).toBe(2);
+    expect(walls.length).toBe(4);
+    expect(copes.length).toBe(4);
     for (const wall of walls) {
       const mat = wall.material as THREE.MeshStandardMaterial;
       expect(mat.map).toBeInstanceOf(THREE.DataTexture);
@@ -156,5 +156,20 @@ describe("canal walls", () => {
     expect(foamMat.opacity).toBeLessThan(0.55);
     expect(foamMat.metalness).toBeGreaterThan(0.45);
     expect(foamMat.color.getHex()).toBeLessThan(0x4a6570);
+  });
+
+  it("vaults neon over the water with channel markers and a smash stack", () => {
+    const track = buildRiptideRefinery();
+    const { group } = createTrackGroup(track);
+    const vault = group.getObjectByName("neonVault") as THREE.Mesh;
+    expect(vault).toBeTruthy();
+    const box = new THREE.Box3().setFromObject(vault);
+    const size = box.getSize(new THREE.Vector3());
+    expect(size.y).toBeGreaterThan(10);
+    expect(Math.max(size.x, size.z)).toBeGreaterThan(40);
+    const mid = track.main.getFrameAtT(0.62);
+    expect(box.containsPoint(new THREE.Vector3(mid.x, mid.y + 8, mid.z))).toBe(true);
+    expect(group.getObjectByName("channelMarker")).toBeTruthy();
+    expect(group.getObjectByName("smashStack")).toBeTruthy();
   });
 });
