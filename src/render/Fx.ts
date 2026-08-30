@@ -68,7 +68,7 @@ function sheetMaterial(foam = false): THREE.ShaderMaterial {
     side: THREE.DoubleSide,
     blending: foam ? THREE.AdditiveBlending : THREE.NormalBlending,
     uniforms: {
-      uColor: { value: new THREE.Color(foam ? 0xeaf7ff : 0xd4eef8) },
+      uColor: { value: new THREE.Color(foam ? 0xd8eef6 : 0xb4d8e4) },
       uOpacity: { value: 0 },
     },
     vertexShader: `
@@ -83,8 +83,8 @@ function sheetMaterial(foam = false): THREE.ShaderMaterial {
       uniform float uOpacity;
       varying vec2 vUv;
       void main() {
-        float edge = smoothstep(0.0, 0.22, vUv.x) * smoothstep(1.0, 0.78, vUv.x);
-        float fade = pow(1.0 - vUv.y, 1.65);
+        float edge = smoothstep(0.0, 0.28, vUv.x) * smoothstep(1.0, 0.72, vUv.x);
+        float fade = pow(1.0 - vUv.y, 1.45);
         float a = edge * fade * uOpacity;
         if (a < 0.012) discard;
         gl_FragColor = vec4(uColor, a);
@@ -468,9 +468,9 @@ export class Fx {
     const boost = host.boostHeld && (host.boostFuel > 0 || host.superBoostRemaining > 0) ? 1 : 0;
     const hullW = host.def.hullWidth;
     const hullL = host.def.hullLength;
-    const wet = Math.min(0.38, 0.1 + speed / 140 + boost * 0.08);
-    const transomLen = 4.2 + speed * 0.12 + boost * 2.1;
-    const transomWid = hullW * 1.35 + boost * 0.4;
+    const wet = Math.min(0.5, 0.14 + speed / 115 + boost * 0.1);
+    const transomLen = 5.6 + speed * 0.155 + boost * 2.5;
+    const transomWid = hullW * 1.22 + boost * 0.32;
     this.placeSheet(
       this.sheets[0],
       host,

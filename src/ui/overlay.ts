@@ -17,6 +17,7 @@ export class Overlay {
   private countdown!: HTMLElement;
   private callout!: HTMLElement;
   private pack!: HTMLElement;
+  private help!: HTMLElement;
   private gate!: HTMLElement;
   private calloutUntil = 0;
   private pos!: HTMLElement;
@@ -120,6 +121,7 @@ export class Overlay {
     this.countdown = this.el("#countdown");
     this.callout = this.el("#callout");
     this.pack = this.el("#pack");
+    this.help = this.el(".help");
     this.gate = this.el("#gate-lights");
     this.pos = this.el("#hud-pos");
     this.lap = this.el("#hud-lap");
@@ -167,6 +169,7 @@ export class Overlay {
     this.hud.hidden = screen !== "hud";
     this.pause.hidden = screen !== "pause";
     this.results.hidden = screen !== "results";
+    if (screen === "hud") this.help.classList.remove("faded");
   }
 
   setSelected(id: BoatId): void {
@@ -212,6 +215,7 @@ export class Overlay {
       this.callout.textContent = "";
       this.calloutUntil = 0;
     }
+    this.help.classList.toggle("faded", dir.phase === "racing" && dir.time >= 8);
   }
 
   flashHit(text: string, ms = 900): void {

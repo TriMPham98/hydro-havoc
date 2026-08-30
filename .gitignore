@@ -4,3 +4,4 @@ dist
 *.local
 .vercel
 .verify-*.png
+*.blend1

@@ -593,6 +593,13 @@ button.ghost {
   border: 1px solid var(--line);
   padding: 10px 12px;
   font-size: 14px;
+  opacity: 1;
+  transition: opacity 0.9s ease;
+}
+
+.help.faded {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .help kbd {

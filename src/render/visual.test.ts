@@ -5,6 +5,7 @@ import { createBoat } from "../sim/Boat";
 import { gerstnerHeight } from "../sim/waterHeight";
 import { ContactField, HULL_WATERLINE } from "./Contact";
 import { Fx } from "./Fx";
+import { createSkyDome } from "./SkyDome";
 import { createTrackGroup } from "./TrackMesh";
 import { createOceanMaterial, createWaterMaterial } from "./WaterMaterial";
 
@@ -18,6 +19,30 @@ describe("canal water", () => {
     expect(ocean.uniforms.uHasPlanar.value).toBe(0);
     expect(canal.fragmentShader).toContain("uPlanar");
     expect(canal.fragmentShader).toContain("uReflectMatrix");
+    expect(canal.fragmentShader).toContain("glitterAmt");
+    expect(canal.fragmentShader).toContain("wetLip");
+    expect(canal.fragmentShader).toContain("pow(1.0 - ndv, 2.0)");
+  });
+
+  it("keeps canal water darker than the old milky teal", () => {
+    const canal = createWaterMaterial("canal");
+    const ocean = createOceanMaterial();
+    const deep = canal.uniforms.uColorDeep.value as THREE.Color;
+    const shallow = canal.uniforms.uColorShallow.value as THREE.Color;
+    expect(deep.g).toBeLessThan(0.22);
+    expect(deep.b).toBeLessThan(0.28);
+    expect(shallow.g).toBeLessThan(0.5);
+    expect(deep.getHex()).not.toBe(shallow.getHex());
+    expect((ocean.uniforms.uColorDeep.value as THREE.Color).g).toBeLessThan(0.24);
+  });
+});
+
+describe("dusk sky", () => {
+  it("keeps a shader sphere with a lowered sun disc", () => {
+    const { mesh, material } = createSkyDome();
+    expect(mesh.name).toBe("skyDome");
+    expect(material.fragmentShader).toContain("uSunDir.y * 0.58");
+    expect(material.fragmentShader).toContain("band");
   });
 });
 
@@ -127,6 +152,9 @@ describe("canal walls", () => {
     }
     const foam = group.getObjectByName("canalWaterline") as THREE.Mesh;
     expect(foam.material).toBeInstanceOf(THREE.MeshStandardMaterial);
-    expect((foam.material as THREE.MeshStandardMaterial).opacity).toBeLessThan(0.55);
+    const foamMat = foam.material as THREE.MeshStandardMaterial;
+    expect(foamMat.opacity).toBeLessThan(0.55);
+    expect(foamMat.metalness).toBeGreaterThan(0.45);
+    expect(foamMat.color.getHex()).toBeLessThan(0x4a6570);
   });
 });

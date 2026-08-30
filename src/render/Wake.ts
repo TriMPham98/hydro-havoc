@@ -8,9 +8,9 @@ import { gerstnerHeight } from "../sim/waterHeight";
 const WATERLINE = 0.52;
 
 export function ribbonLength(speed: number, boosting: boolean, player: boolean): number {
-  const stretch = 3.5 + speed * 0.13 + (boosting ? 3.4 : 0);
-  const cap = player ? 16.5 : 13.5;
-  return Math.min(cap, stretch * (player ? 1.12 : 1));
+  const stretch = 4.15 + speed * 0.15 + (boosting ? 3.9 : 0);
+  const cap = player ? 19 : 14;
+  return Math.min(cap, stretch * (player ? 1.18 : 1));
 }
 
 function foamMaterial(skirt: boolean): THREE.ShaderMaterial {
@@ -22,8 +22,8 @@ function foamMaterial(skirt: boolean): THREE.ShaderMaterial {
     polygonOffsetUnits: -2,
     side: THREE.DoubleSide,
     uniforms: {
-      uColorFoam: { value: new THREE.Color(0xe4f4f6) },
-      uColorTeal: { value: new THREE.Color(0x1eb4c6) },
+      uColorFoam: { value: new THREE.Color(0xd8eef2) },
+      uColorTeal: { value: new THREE.Color(0x0e6a78) },
       uColorBoost: { value: new THREE.Color(0x7af0ff) },
       uBoost: { value: 0 },
       uOpacity: { value: 0 },
@@ -142,9 +142,9 @@ class HullWake {
     this.fillSkirt(boat, time, fwd.x, fwd.z, rightX, rightZ, wave0);
     const dens = this.player ? 1 : 0.62;
     this.ribbonMat.uniforms.uOpacity.value =
-      wet * dens * (0.18 + speedK * 0.55) * saturate((boat.speed - 2) / 8);
+      wet * dens * (this.player ? 0.28 + speedK * 0.64 : 0.16 + speedK * 0.48) * saturate((boat.speed - 2) / 8);
     this.skirtMat.uniforms.uOpacity.value =
-      wet * dens * (0.12 + speedK * 0.18) * saturate((boat.speed - 4) / 10);
+      wet * dens * (this.player ? 0.18 + speedK * 0.26 : 0.1 + speedK * 0.16) * saturate((boat.speed - 4) / 10);
     this.ribbonMat.uniforms.uBoost.value = boosting ? 1 : 0;
     this.skirtMat.uniforms.uBoost.value = boosting ? 0.7 : 0;
     this.ribbonMat.uniforms.uTime.value = time;

@@ -3,6 +3,7 @@ import {
   HULL_RADIUS,
   OFFTRACK_TIME,
   RESPAWN_SPEED_FACTOR,
+  RUBBER_BAND,
   STEER_GAIN,
   WATER_DAMP,
   WATER_SPRING,
@@ -12,7 +13,7 @@ import { headingVector } from "./Boat";
 import { spendBoost } from "./BoostSystem";
 import { tickJumpHold, tryHydroJump } from "./HydroJump";
 import { clamp, lerp, wrapAngle } from "./math";
-import { queryCourse, resolveBank, respawnPose } from "./Track";
+import { queryCourse, resolveBank, respawnPose, slowBandDrag } from "./Track";
 import type { TrackWorld } from "./Track";
 import { gerstnerHeight } from "./waterHeight";
 import { updateLapAndCheckpoints } from "./progress";
@@ -93,7 +94,11 @@ export function stepBoat(
     const dragK = accel / Math.max(maxSpeed * maxSpeed, 1);
     boat.speed -= dragK * boat.speed * boat.speed * dt;
     if (boat.throttle < 0.05 && boat.brake < 0.05) boat.speed -= 8 * dt;
-    boat.speed = clamp(boat.speed, 0, maxSpeed);
+    const rubberCap =
+      !spend.usingBoost && !spend.usingSuper && boat.throttle > 1
+        ? Math.min(boat.throttle, 1 + RUBBER_BAND)
+        : 1;
+    boat.speed = clamp(boat.speed, 0, maxSpeed * rubberCap);
     const turn = def.turnRate * steerCurve(boat.speed, def.maxSpeed) * boat.steer * STEER_GAIN;
     boat.yaw += turn * dt;
     const slip = boat.speed * (1.15 / def.grip) * boat.steer * STEER_GAIN;
@@ -119,7 +124,7 @@ export function stepBoat(
   boat.courseT = q.courseT;
   updateLapAndCheckpoints(boat, prevT, boat.courseT, raceTime);
 
-  const wall = resolveBank(q, boat.x, boat.z, boat.vx, boat.vz);
+  const wall = resolveBank(q, boat.x, boat.z, boat.vx, boat.vz, def.hullWidth * 0.5);
   if (wall.hit) {
     boat.x = wall.x;
     boat.z = wall.z;
@@ -130,7 +135,13 @@ export function stepBoat(
     if (boat.airborne && boat.vy < 0) boat.vy *= 0.2;
     const desired = Math.atan2(q.frame.tx, q.frame.tz);
     const err = wrapAngle(desired - boat.yaw);
-    if (Math.abs(err) > 0.7) boat.yaw += err * 0.4;
+    const glance = Math.abs(err) < 0.62;
+    if (Math.abs(err) > 0.08) boat.yaw += err * (glance ? 0.12 : 0.28);
+  }
+
+  const silt = slowBandDrag(track, boat.courseT, q.lateral);
+  if (silt > 0 && !boat.airborne) {
+    boat.speed = Math.max(0, boat.speed - silt * dt);
   }
 
   const wave = gerstnerHeight(boat.x, boat.z, boat.time, q.onShortcut ? 0.35 : 1);
@@ -150,10 +161,11 @@ export function stepBoat(
     boat.y = pose.y;
     boat.z = pose.z;
     boat.yaw = pose.yaw;
-    boat.vx = 0;
-    boat.vy = 0;
-    boat.vz = 0;
     boat.speed = def.maxSpeed * RESPAWN_SPEED_FACTOR;
+    const launch = headingVector(pose.yaw);
+    boat.vx = launch.x * boat.speed;
+    boat.vy = 0;
+    boat.vz = launch.z * boat.speed;
     boat.airborne = false;
     boat.onWater = true;
     boat.offTrackTime = 0;

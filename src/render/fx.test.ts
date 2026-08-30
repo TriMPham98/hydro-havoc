@@ -36,7 +36,8 @@ describe("player spray sheets", () => {
     expect(chineL.visible).toBe(true);
     expect(chineR.visible).toBe(true);
     expect(transom.scale.z).toBeGreaterThan(chineL.scale.z);
-    expect((transom.material as THREE.ShaderMaterial).uniforms.uOpacity.value).toBeGreaterThan(0.05);
+    expect(transom.scale.z).toBeGreaterThan(8);
+    expect((transom.material as THREE.ShaderMaterial).uniforms.uOpacity.value).toBeGreaterThan(0.2);
 
     player.speed = 0;
     player.onWater = false;

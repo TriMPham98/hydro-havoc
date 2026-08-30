@@ -48,6 +48,26 @@ describe("createTrackGroup", () => {
   });
 });
 
+describe("hero silhouettes", () => {
+  it("scales drydock, tanker, and flare stacks without extra point lights", () => {
+    const { group } = createTrackGroup(buildRiptideRefinery());
+    const tanker = group.getObjectByName("tanker");
+    const dock = group.getObjectByName("drydock");
+    const flames = group.getObjectByName("flareFlame");
+    expect(tanker).toBeTruthy();
+    expect(dock).toBeTruthy();
+    expect(flames).toBeInstanceOf(THREE.InstancedMesh);
+    const tSize = new THREE.Box3().setFromObject(tanker!).getSize(new THREE.Vector3());
+    const dSize = new THREE.Box3().setFromObject(dock!).getSize(new THREE.Vector3());
+    expect(Math.max(tSize.x, tSize.z)).toBeGreaterThan(90);
+    expect(tSize.y).toBeGreaterThan(28);
+    expect(dSize.y).toBeGreaterThan(48);
+    expect((flames as THREE.InstancedMesh).count).toBeGreaterThanOrEqual(3);
+    const flameMat = (flames as THREE.InstancedMesh).material as THREE.MeshStandardMaterial;
+    expect(flameMat.emissiveIntensity).toBeGreaterThan(2);
+  });
+});
+
 describe("canal ribbon budget", () => {
   it("samples water at 6–8m with 4–6 width segs", () => {
     expect(WATER_ALONG).toBeGreaterThanOrEqual(6);

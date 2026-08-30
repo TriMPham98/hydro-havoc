@@ -53,6 +53,8 @@ export function buildRiptideRefinery(): TrackWorld {
   ];
   track.pickups = placePickups(track);
   track.crates = placeCrates(track);
+  // Outer neon silt — sim drag only; dress later.
+  track.slowBands = [{ t0: 0.48, t1: 0.53, minAbsLat: 6.4, drag: 8 }];
   return track;
 }
 

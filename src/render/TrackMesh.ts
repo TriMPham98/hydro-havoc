@@ -98,8 +98,8 @@ function canalAlbedo(kind: "wall" | "cope"): THREE.DataTexture {
       let g: number;
       let b: number;
       if (kind === "wall") {
-        const wet = Math.pow(1 - v, 2.2) * 0.22;
-        const base = 0.4 + n0 * 0.08 + n1 * 0.05 + grain * 0.045;
+        const wet = Math.pow(1 - v, 2.0) * 0.34;
+        const base = 0.46 + n0 * 0.08 + n1 * 0.05 + grain * 0.045;
         r = base * 0.9;
         g = base * 0.94;
         b = base * 1.02;
@@ -272,7 +272,7 @@ function addInstanced(
   geometry: THREE.BufferGeometry,
   material: THREE.Material,
   xforms: Xform[],
-): void {
+): THREE.InstancedMesh | undefined {
   if (xforms.length === 0) return;
   const mesh = new THREE.InstancedMesh(geometry, material, xforms.length);
   for (let i = 0; i < xforms.length; i++) {
@@ -286,6 +286,7 @@ function addInstanced(
   mesh.instanceMatrix.needsUpdate = true;
   mesh.computeBoundingSphere();
   group.add(mesh);
+  return mesh;
 }
 
 export function createTrackGroup(track: TrackWorld): {
@@ -297,27 +298,27 @@ export function createTrackGroup(track: TrackWorld): {
   const wallTex = canalAlbedo("wall");
   const copeTex = canalAlbedo("cope");
   const wallMat = new THREE.MeshStandardMaterial({
-    color: 0xc8c4bc,
+    color: 0xd4d0c6,
     map: wallTex,
-    roughness: 0.92,
-    metalness: 0.06,
+    roughness: 0.9,
+    metalness: 0.08,
   });
   const copeMat = new THREE.MeshStandardMaterial({
-    color: 0xb8a894,
+    color: 0xc8b49a,
     map: copeTex,
-    roughness: 0.58,
-    metalness: 0.34,
+    roughness: 0.42,
+    metalness: 0.48,
   });
   const foamMat = new THREE.MeshStandardMaterial({
-    color: 0x4a6570,
-    roughness: 0.26,
-    metalness: 0.28,
+    color: 0x243840,
+    roughness: 0.16,
+    metalness: 0.58,
     transparent: true,
-    opacity: 0.4,
+    opacity: 0.42,
     depthWrite: false,
     polygonOffset: true,
     polygonOffsetFactor: -2,
-    envMapIntensity: 0.35,
+    envMapIntensity: 0.55,
   });
 
   const addRibbon = (spline: ArcSpline, closed: boolean, cope: THREE.Material, walls: THREE.Material) => {
@@ -389,7 +390,14 @@ function dressProps(group: THREE.Group, track: TrackWorld): void {
   const rust = new THREE.MeshStandardMaterial({ color: 0x6a3a22, roughness: 0.9, metalness: 0.2 });
   const steel = new THREE.MeshStandardMaterial({ color: 0x3d4750, metalness: 0.55, roughness: 0.4 });
   const neon = new THREE.MeshStandardMaterial({ color: 0x2ee6ff, emissive: 0x147d8c, emissiveIntensity: 1.4 });
-  const fire = new THREE.MeshBasicMaterial({ color: 0xff6a22 });
+  const stackMat = new THREE.MeshStandardMaterial({ color: 0x3a1c10, roughness: 0.78, metalness: 0.32 });
+  const fire = new THREE.MeshStandardMaterial({
+    color: 0xffc060,
+    emissive: 0xff5a10,
+    emissiveIntensity: 3.6,
+    roughness: 0.32,
+    metalness: 0.04,
+  });
 
   const tankPoses: Xform[] = [];
   for (const t of [0.14, 0.19, 0.38, 0.46, 0.52]) {
@@ -456,14 +464,16 @@ function dressProps(group: THREE.Group, track: TrackWorld): void {
   const flamePoses: Xform[] = [];
   for (const t of [0.11, 0.33, 0.49]) {
     const f = track.main.getFrameAtT(t);
-    const x = f.x + f.rx * (f.width * 0.5 + 14);
-    const y = f.y + 14;
-    const z = f.z + f.rz * (f.width * 0.5 + 14);
+    const x = f.x + f.rx * (f.width * 0.5 + 16);
+    const y = f.y + 24;
+    const z = f.z + f.rz * (f.width * 0.5 + 16);
     stackPoses.push({ x, y, z });
-    flamePoses.push({ x, y: y + 17, z });
+    flamePoses.push({ x, y: y + 28, z });
   }
-  addInstanced(group, new THREE.CylinderGeometry(1.4, 2.2, 28, 8), rust, stackPoses);
-  addInstanced(group, new THREE.ConeGeometry(1.6, 5.5, 6), fire, flamePoses);
+  const stacks = addInstanced(group, new THREE.CylinderGeometry(2.2, 3.4, 48, 8), stackMat, stackPoses);
+  if (stacks) stacks.name = "flareStack";
+  const flames = addInstanced(group, new THREE.ConeGeometry(3.0, 12, 6), fire, flamePoses);
+  if (flames) flames.name = "flareFlame";
 
   const wf = track.main.getFrameAtT(0.83);
   const fall = new THREE.Mesh(
@@ -502,21 +512,48 @@ function dressCavern(group: THREE.Group, track: TrackWorld): void {
 
 /** Original-IP landmarks well off the ribbon so distant-t never stacks. */
 function dressLandmarks(group: THREE.Group, track: TrackWorld): void {
-  const hull = new THREE.MeshStandardMaterial({ color: 0x4a3a32, roughness: 0.72, metalness: 0.28 });
-  const rust = new THREE.MeshStandardMaterial({ color: 0x6a3a22, roughness: 0.9, metalness: 0.2 });
-  const lava = new THREE.MeshBasicMaterial({ color: 0xff4a18 });
+  const hull = new THREE.MeshStandardMaterial({ color: 0x2a221c, roughness: 0.62, metalness: 0.42 });
+  const rust = new THREE.MeshStandardMaterial({ color: 0x8a3a16, roughness: 0.78, metalness: 0.28 });
+  const boot = new THREE.MeshStandardMaterial({ color: 0x14100c, roughness: 0.55, metalness: 0.5 });
+  const stripe = new THREE.MeshStandardMaterial({ color: 0xc8a24a, roughness: 0.4, metalness: 0.35 });
+  const lava = new THREE.MeshStandardMaterial({
+    color: 0xffc060,
+    emissive: 0xff4a10,
+    emissiveIntensity: 3.2,
+    roughness: 0.3,
+  });
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0xffc878,
+    emissive: 0xffb060,
+    emissiveIntensity: 1.9,
+    roughness: 0.22,
+    metalness: 0.35,
+  });
   const f0 = track.main.getFrameAtT(0.08);
   const tanker = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(22, 14, 88), hull);
-  body.position.y = 10;
+  tanker.name = "tanker";
+  const body = new THREE.Mesh(new THREE.BoxGeometry(34, 22, 124), hull);
+  body.position.y = 12;
   tanker.add(body);
-  const superstruct = new THREE.Mesh(new THREE.BoxGeometry(14, 18, 16), rust);
-  superstruct.position.set(0, 22, -28);
+  const keel = new THREE.Mesh(new THREE.BoxGeometry(34.6, 2.2, 122), boot);
+  keel.position.y = 2.4;
+  tanker.add(keel);
+  const belt = new THREE.Mesh(new THREE.BoxGeometry(12, 1.1, 108), stripe);
+  belt.position.y = 16.4;
+  tanker.add(belt);
+  const superstruct = new THREE.Mesh(new THREE.BoxGeometry(20, 26, 22), rust);
+  superstruct.position.set(0, 28, -38);
   tanker.add(superstruct);
-  const stack = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.6, 16, 8), rust);
-  stack.position.set(0, 34, -28);
+  const windows = new THREE.Mesh(new THREE.BoxGeometry(18, 3.4, 0.7), glass);
+  windows.position.set(0, 34, -27.2);
+  tanker.add(windows);
+  const stack = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.8, 24, 8), rust);
+  stack.position.set(0, 46, -38);
   tanker.add(stack);
-  tanker.position.set(f0.x + f0.rx * (f0.width * 0.5 + 62), f0.y, f0.z + f0.rz * (f0.width * 0.5 + 62));
+  const flare = new THREE.Mesh(new THREE.ConeGeometry(2.6, 9, 6), lava);
+  flare.position.set(0, 62, -38);
+  tanker.add(flare);
+  tanker.position.set(f0.x + f0.rx * (f0.width * 0.5 + 58), f0.y, f0.z + f0.rz * (f0.width * 0.5 + 58));
   tanker.rotation.y = Math.atan2(f0.tx, f0.tz) + 0.35;
   group.add(tanker);
 
@@ -615,26 +652,40 @@ function dressReef(group: THREE.Group, track: TrackWorld): void {
 
 /** Huge drydock frame over the canal — visual only, banks stay the playable walls. */
 function dressShipyard(group: THREE.Group, track: TrackWorld): void {
-  const steel = new THREE.MeshStandardMaterial({ color: 0x3a444c, metalness: 0.62, roughness: 0.38 });
-  const rust = new THREE.MeshStandardMaterial({ color: 0x7a4028, roughness: 0.78, metalness: 0.22 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0x1c242a, metalness: 0.78, roughness: 0.28 });
+  const rust = new THREE.MeshStandardMaterial({ color: 0x9a3e16, roughness: 0.68, metalness: 0.3 });
+  const lamp = new THREE.MeshStandardMaterial({
+    color: 0xffc060,
+    emissive: 0xff9a30,
+    emissiveIntensity: 2.4,
+    roughness: 0.28,
+    metalness: 0.2,
+  });
   const f = track.main.getFrameAtT(0.2);
   const yaw = Math.atan2(f.tx, f.tz);
   const yard = new THREE.Group();
-  const span = f.width + 36;
+  yard.name = "drydock";
+  const span = f.width + 52;
   const legs: Xform[] = [];
   const cables: Xform[] = [];
   for (const side of [-1, 1] as const) {
-    legs.push({ x: f.rx * (span * 0.5) * side, y: 21, z: f.rz * (span * 0.5) * side });
-    cables.push({ x: span * 0.38 * side, y: 30, z: 0 });
+    legs.push({ x: f.rx * (span * 0.5) * side, y: 29, z: f.rz * (span * 0.5) * side });
+    cables.push({ x: span * 0.38 * side, y: 40, z: 0 });
   }
-  addInstanced(yard, new THREE.BoxGeometry(4.2, 42, 6), steel, legs);
-  addInstanced(yard, new THREE.CylinderGeometry(0.12, 0.12, 14, 5), rust, cables);
-  const cross = new THREE.Mesh(new THREE.BoxGeometry(span + 8, 3.2, 5), rust);
-  cross.position.y = 40;
+  addInstanced(yard, new THREE.BoxGeometry(5.4, 58, 8), steel, legs);
+  addInstanced(yard, new THREE.CylinderGeometry(0.2, 0.2, 20, 5), rust, cables);
+  const cross = new THREE.Mesh(new THREE.BoxGeometry(span + 14, 4.6, 7), rust);
+  cross.position.y = 56;
   yard.add(cross);
-  const hoist = new THREE.Mesh(new THREE.BoxGeometry(8, 6, 10), steel);
-  hoist.position.set(span * 0.28, 36, 0);
+  const hoist = new THREE.Mesh(new THREE.BoxGeometry(12, 8, 14), steel);
+  hoist.position.set(span * 0.28, 50, 0);
   yard.add(hoist);
+  const beacon = new THREE.Mesh(new THREE.BoxGeometry(10, 1.2, 1.4), lamp);
+  beacon.position.set(span * 0.28, 54.6, 0);
+  yard.add(beacon);
+  const hook = new THREE.Mesh(new THREE.BoxGeometry(4.2, 5.5, 6), rust);
+  hook.position.set(span * 0.28, 24, 0);
+  yard.add(hook);
   yard.position.set(f.x, f.y, f.z);
   yard.rotation.y = yaw;
   group.add(yard);

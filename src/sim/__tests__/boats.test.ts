@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BOATS, boatById, statBars } from "../../data/boats";
 import { createBoat } from "../Boat";
 import { stepBoat } from "../BoatController";
+import { RESPAWN_SPEED_FACTOR } from "../constants";
 import { buildRiptideRefinery } from "../../data/tracks/riptideRefinery";
 
 describe("hull stats", () => {
@@ -53,5 +54,39 @@ describe("hull stats", () => {
     };
     expect(yawAt("skimmer")).toBeGreaterThan(yawAt("ironwake") * 1.08);
     expect(yawAt("ironwake")).toBeGreaterThan(yawAt("vesper") * 1.08);
+  });
+
+  it("respawns with usable forward speed", () => {
+    const track = buildRiptideRefinery();
+    const boat = createBoat("p", "skimmer", false);
+    const start = track.main.getFrameAtT(0);
+    boat.x = start.x;
+    boat.z = start.z;
+    boat.y = start.y - 12;
+    boat.speed = 4;
+    const step = stepBoat(boat, track, 1 / 60, 0, false);
+    expect(step.respawned).toBe(true);
+    expect(boat.speed).toBeCloseTo(boat.def.maxSpeed * RESPAWN_SPEED_FACTOR);
+    expect(Math.hypot(boat.vx, boat.vz)).toBeGreaterThan(boat.speed * 0.9);
+  });
+
+  it("drags more in the outer silt band than on center", () => {
+    const track = buildRiptideRefinery();
+    const t = 0.505;
+    const f = track.main.getFrameAtT(t);
+    const run = (lat: number) => {
+      const boat = createBoat("p", "skimmer", false);
+      boat.x = f.x + f.rx * lat;
+      boat.y = f.y + 0.8;
+      boat.z = f.z + f.rz * lat;
+      boat.yaw = Math.atan2(f.tx, f.tz);
+      boat.courseT = t;
+      boat.speed = 26;
+      boat.throttle = 0;
+      boat.brake = 0;
+      for (let i = 0; i < 40; i++) stepBoat(boat, track, 1 / 60, 0, false);
+      return boat.speed;
+    };
+    expect(run(7.2)).toBeLessThan(run(0) - 1.2);
   });
 });

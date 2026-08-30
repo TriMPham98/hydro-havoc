@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildRiptideRefinery } from "../../data/tracks/riptideRefinery";
 import { gridPose, queryCourse, resolveBank, respawnPose, showcasePose } from "../Track";
-import { pairKey } from "../Collision";
+import { hullOverlap, pairKey, resolveHulls, resetRamTable } from "../Collision";
 import { createBoat } from "../Boat";
-import { resolveHulls, resetRamTable } from "../Collision";
 import { wrapAngle } from "../math";
 
 describe("track", () => {
@@ -26,6 +25,21 @@ describe("track", () => {
     const q = queryCourse(track, f.x + f.rx * 40, f.y, f.z + f.rz * 40);
     const hit = resolveBank(q, f.x + f.rx * 40, f.z + f.rz * 40, f.rx * 10, f.rz * 10);
     expect(hit.hit).toBe(true);
+    const after = queryCourse(track, hit.x, f.y, hit.z);
+    expect(Math.abs(after.lateral)).toBeLessThan(Math.abs(q.lateral));
+  });
+
+  it("keeps a floor of forward speed on a fast bank scrape", () => {
+    const track = buildRiptideRefinery();
+    const f = track.main.getFrameAtT(0.1);
+    const lat = f.width * 0.5 + 3;
+    const q = queryCourse(track, f.x + f.rx * lat, f.y, f.z + f.rz * lat);
+    const incoming = 28;
+    const vx = f.tx * incoming + f.rx * 7;
+    const vz = f.tz * incoming + f.rz * 7;
+    const hit = resolveBank(q, f.x + f.rx * lat, f.z + f.rz * lat, vx, vz);
+    expect(hit.hit).toBe(true);
+    expect(Math.hypot(hit.vx, hit.vz)).toBeGreaterThan(incoming * 0.7);
     const after = queryCourse(track, hit.x, f.y, hit.z);
     expect(Math.abs(after.lateral)).toBeLessThan(Math.abs(q.lateral));
   });
@@ -213,5 +227,37 @@ describe("mighty hull", () => {
     expect(a.speed).toBeGreaterThan(20);
     expect(b.speed).toBeGreaterThan(18);
     expect(Math.abs(a.x - b.x)).toBeGreaterThan(0.5);
+  });
+
+  it("keeps visual hull boxes from nesting side-by-side", () => {
+    resetRamTable();
+    const a = createBoat("a", "ironwake", false);
+    const b = createBoat("b", "vesper", true);
+    a.x = 0;
+    a.z = 0;
+    a.yaw = 0;
+    b.x = 1.2;
+    b.z = 0.4;
+    b.yaw = 0;
+    expect(hullOverlap(a, b)).not.toBeNull();
+    resolveHulls([a, b], 1);
+    expect(hullOverlap(a, b)).toBeNull();
+    expect(Math.abs(a.x - b.x)).toBeGreaterThan(a.def.hullWidth * 0.45 + b.def.hullWidth * 0.45);
+  });
+
+  it("splits two nested hulls so their collision boxes no longer overlap", () => {
+    resetRamTable();
+    const a = createBoat("a", "skimmer", false);
+    const b = createBoat("b", "ironwake", true);
+    a.x = 0;
+    a.z = 0;
+    a.yaw = 0.1;
+    b.x = 0.8;
+    b.z = 1.2;
+    b.yaw = -0.05;
+    expect(hullOverlap(a, b)).not.toBeNull();
+    resolveHulls([a, b], 1);
+    expect(hullOverlap(a, b)).toBeNull();
+    expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThan(3);
   });
 });

@@ -9,6 +9,7 @@ import {
 } from "../BoostSystem";
 import { BOOST_CAP, SUPER_DURATION } from "../constants";
 import { buildRiptideRefinery } from "../../data/tracks/riptideRefinery";
+import { stepPickups } from "../Pickups";
 
 describe("boost system", () => {
   it("caps normal boost", () => {
@@ -74,5 +75,50 @@ describe("boost system", () => {
     boat.boostHeld = true;
     stepBoat(boat, track, 1 / 60, 0, false);
     expect(boat.speed).toBeGreaterThan(before + 4);
+  });
+});
+
+describe("AI boost pickups", () => {
+  it("does not let AI collect blue/red/super or boost crates; player still can", () => {
+    const track = buildRiptideRefinery();
+    const player = createBoat("player", "skimmer", false);
+    const ai = createBoat("ai0", "ironwake", true);
+    const p = track.pickups.find((x) => x.kind === "blue");
+    if (!p) throw new Error("missing blue pickup");
+    ai.x = p.x;
+    ai.y = p.y;
+    ai.z = p.z;
+    player.x = p.x + 80;
+    player.z = p.z + 80;
+    const missed = stepPickups(track, [ai, player], 0.016, 1);
+    expect(missed.filter((e) => e.kind === "blue")).toEqual([]);
+    expect(ai.boostFuel).toBe(0);
+    expect(p.taken).toBe(0);
+
+    player.x = p.x;
+    player.y = p.y;
+    player.z = p.z;
+    const got = stepPickups(track, [ai, player], 0.016, 2);
+    expect(got.some((e) => e.kind === "blue" && e.boat === player)).toBe(true);
+    expect(player.boostFuel).toBeGreaterThan(0);
+    expect(ai.boostFuel).toBe(0);
+  });
+
+  it("does not let AI open a boost crate", () => {
+    const track = buildRiptideRefinery();
+    const crate = track.crates.find((c) => c.kind === "boost") ?? track.crates[0];
+    crate.kind = "boost";
+    crate.taken = 0;
+    const ai = createBoat("ai0", "vesper", true);
+    const player = createBoat("player", "skimmer", false);
+    ai.x = crate.x;
+    ai.y = crate.y;
+    ai.z = crate.z;
+    player.x = crate.x + 90;
+    player.z = crate.z + 90;
+    const ev = stepPickups(track, [ai, player], 0.016, 3);
+    expect(ev.some((e) => e.kind === "crate-boost")).toBe(false);
+    expect(ai.boostFuel).toBe(0);
+    expect(crate.taken).toBe(0);
   });
 });

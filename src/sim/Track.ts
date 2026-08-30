@@ -30,6 +30,14 @@ export interface Mine {
   live: boolean;
 }
 
+/** Outer-lane silt / dirty water. Sim drag only. */
+export interface SlowBand {
+  t0: number;
+  t1: number;
+  minAbsLat: number;
+  drag: number;
+}
+
 export interface TrackWorld {
   id: string;
   name: string;
@@ -41,6 +49,7 @@ export interface TrackWorld {
   pickups: PlacedPickup[];
   crates: CrateSlot[];
   mines: Mine[];
+  slowBands: SlowBand[];
   start: Frame;
   sectors: { until: number; name: string }[];
 }
@@ -64,6 +73,7 @@ export function makeTrack(mainPts: ControlPoint[], shortcutPts: ControlPoint[]):
     pickups: [],
     crates: [],
     mines: [],
+    slowBands: [],
     start: main.getFrameAtT(0),
     sectors: [{ until: 1, name: "CANAL" }],
   };
@@ -99,8 +109,9 @@ export function resolveBank(
   z: number,
   vx: number,
   vz: number,
+  hullHalfWidth = 2.2,
 ): { x: number; z: number; vx: number; vz: number; hit: boolean } {
-  const limit = q.halfWidth - 2.2;
+  const limit = Math.max(1.2, q.halfWidth - hullHalfWidth - 0.35);
   if (Math.abs(q.lateral) <= limit) return { x, z, vx, vz, hit: false };
   const sign = Math.sign(q.lateral) || 1;
   const over = Math.abs(q.lateral) - limit;
@@ -108,6 +119,7 @@ export function resolveBank(
   const nz = q.frame.rz * sign;
   const pushedX = x - nx * (over + 0.05);
   const pushedZ = z - nz * (over + 0.05);
+  const incoming = Math.hypot(vx, vz);
   const vn = vx * nx + vz * nz;
   let nvx = vx;
   let nvz = vz;
@@ -117,10 +129,23 @@ export function resolveBank(
   }
   const tx = q.frame.tx;
   const tz = q.frame.tz;
-  const along = nvx * tx + nvz * tz;
-  nvx = tx * along * 0.985;
-  nvz = tz * along * 0.985;
+  let along = nvx * tx + nvz * tz;
+  if (incoming > 5 && Math.abs(along) < incoming * 0.55) {
+    const forward = along >= 0 || Math.abs(along) < incoming * 0.12 ? 1 : Math.sign(along);
+    along = forward * Math.max(Math.abs(along), incoming * 0.78);
+  }
+  along *= 0.997;
+  nvx = tx * along;
+  nvz = tz * along;
   return { x: pushedX, z: pushedZ, vx: nvx, vz: nvz, hit: true };
+}
+
+export function slowBandDrag(track: TrackWorld, t: number, lateral: number): number {
+  let drag = 0;
+  for (const band of track.slowBands) {
+    if (t >= band.t0 && t <= band.t1 && Math.abs(lateral) >= band.minAbsLat) drag += band.drag;
+  }
+  return drag;
 }
 
 export function respawnPose(track: TrackWorld, checkpoint: number): { x: number; y: number; z: number; yaw: number } {

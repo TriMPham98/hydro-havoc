@@ -43,6 +43,8 @@ export class Game {
   private lastPlace = 1;
   private lastPhase = "";
   private lastScrape = 0;
+  private playerJumped = false;
+  private jumpHintShown = false;
   private playerBoat: BoatId = "skimmer";
   private courseId: CourseId = "riptide";
   private visualCourse: CourseId | null = null;
@@ -152,20 +154,30 @@ export class Game {
   private spawnIdle(): void {
     this.bindCourse();
     this.player = createBoat("player", this.playerBoat, false);
-    const pose = this.mode === "select" ? showcasePose(this.track) : gridPose(this.track, 0);
-    copyPose(this.player, pose);
-    this.player.courseT = pose.t;
-    if (this.mode === "title") {
-      this.player.speed = 22;
-      const h = headingVector(this.player.yaw);
-      this.player.vx = h.x * this.player.speed;
-      this.player.vz = h.z * this.player.speed;
-      this.player.throttle = 0.8;
+    if (this.mode === "select") {
+      this.parkShowcase();
+      this.boats = [this.player];
+      this.director = createDirector();
+      this.renderer.camera.snapShowcase(this.player);
+      return;
     }
+    const aiIds = assignAIBoats(this.playerBoat);
     this.boats = [this.player];
+    for (let i = 0; i < AI_COUNT; i++) {
+      this.boats.push(createBoat(`ai${i}`, aiIds[i % aiIds.length] ?? "skimmer", true));
+    }
+    this.boats.forEach((boat, i) => {
+      const pose = gridPose(this.track, i);
+      copyPose(boat, pose);
+      boat.courseT = pose.t;
+      boat.speed = 22;
+      const h = headingVector(boat.yaw);
+      boat.vx = h.x * boat.speed;
+      boat.vz = h.z * boat.speed;
+      boat.throttle = 0.8;
+    });
     this.director = createDirector();
-    if (this.mode === "select") this.renderer.camera.snapShowcase(this.player);
-    else this.renderer.camera.reset();
+    this.renderer.camera.reset();
   }
 
   private pinGrid(): void {
@@ -215,6 +227,8 @@ export class Game {
     this.director = createDirector();
     startCountdown(this.director);
     this.mode = "race";
+    this.playerJumped = false;
+    this.jumpHintShown = false;
     this.overlay.show("hud");
     this.lastCount = "";
     this.lastPlace = this.player.place;
@@ -260,6 +274,10 @@ export class Game {
       for (const boat of this.boats) {
         const step = stepBoat(boat, this.track, dt, this.director.time, false);
         if (boat !== this.player) continue;
+        if (step.jumped && !this.playerJumped) {
+          this.playerJumped = true;
+          this.overlay.flashHit("HYDRO JUMP");
+        }
         if (step.landed) {
           this.audio.splash();
           this.renderer.slam(boat.x, boat.y + 0.4, boat.z);
@@ -332,6 +350,15 @@ export class Game {
         }
         this.lastPlace = this.player.place;
       }
+      if (
+        this.director.phase === "racing" &&
+        this.director.time > 25 &&
+        !this.playerJumped &&
+        !this.jumpHintShown
+      ) {
+        this.jumpHintShown = true;
+        this.overlay.flashHit("BRAKE then BOOST to jump", 1800);
+      }
     }
 
     if (this.mode === "race" && this.director.phase === "finish") {
@@ -340,8 +367,10 @@ export class Game {
       this.overlay.show("results");
       this.audio.setMusic("title");
     } else if (this.mode === "title") {
-      driveAI(this.player, this.track, this.player, true, [this.player], "demo");
-      stepBoat(this.player, this.track, dt, 0, false);
+      for (const boat of this.boats) {
+        driveAI(boat, this.track, this.player, true, this.boats, "demo");
+        stepBoat(boat, this.track, dt, 0, false);
+      }
     } else if (this.mode === "select") {
       this.parkShowcase();
     }

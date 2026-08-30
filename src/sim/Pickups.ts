@@ -20,6 +20,7 @@ export function stepPickups(track: TrackWorld, boats: Boat[], dt: number, now: n
       continue;
     }
     for (const boat of boats) {
+      if (boat.ai) continue;
       if (Math.hypot(boat.x - p.x, boat.z - p.z) < PICKUP_RADIUS && Math.abs(boat.y - p.y) < 6) {
         collectPickup(boat, p.kind);
         p.taken = 7.5;
@@ -35,6 +36,7 @@ export function stepPickups(track: TrackWorld, boats: Boat[], dt: number, now: n
       continue;
     }
     for (const boat of boats) {
+      if (crate.kind === "boost" && boat.ai) continue;
       if (Math.hypot(boat.x - crate.x, boat.z - crate.z) < CRATE_RADIUS && Math.abs(boat.y - crate.y) < 5) {
         crate.taken = 18;
         if (crate.kind === "boost") {

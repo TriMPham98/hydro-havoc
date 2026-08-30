@@ -17,6 +17,16 @@ import { createOceanMaterial } from "./WaterMaterial";
 import { createTrackGroup } from "./TrackMesh";
 import { WakeField } from "./Wake";
 
+type Quality = "low" | "med" | "high";
+
+function readQuality(): Quality {
+  const q = new URLSearchParams(typeof location === "undefined" ? "" : location.search);
+  const raw = (q.get("quality") ?? "").toLowerCase();
+  if (raw === "low" || q.get("low") === "1") return "low";
+  if (raw === "high") return "high";
+  return "med";
+}
+
 function disposeTrackGpu(root: THREE.Object3D, preserve: THREE.Material[]): void {
   const keep = new Set(preserve);
   const geos = new Set<THREE.BufferGeometry>();
@@ -105,6 +115,7 @@ export class GameRenderer {
   private cubeRT: THREE.WebGLCubeRenderTarget;
   private cubeCam: THREE.CubeCamera;
   private cubeTick = 0;
+  private cubeCaptured = false;
   private waterMeshes: THREE.Object3D[] = [];
   private oceanMat: THREE.ShaderMaterial;
   private sky: THREE.Mesh;
@@ -118,9 +129,13 @@ export class GameRenderer {
   private dprWarmup = 90;
   private sunOffset = new THREE.Vector3(-80, 32, 48);
   private sunDir = new THREE.Vector3(-80, 32, 48).normalize();
-  private shadowExtent = 56;
+  private shadowExtent = 48;
   private contacts: ContactField;
   private canalMat: THREE.ShaderMaterial | null = null;
+  private readonly quality: Quality;
+  private readonly planarLong: number;
+  private readonly cubeInterval: number;
+  private planarTick = 0;
   private planarRT: THREE.WebGLRenderTarget;
   private planarCam: THREE.PerspectiveCamera;
   private reflectMatrix = new THREE.Matrix4();
@@ -140,6 +155,11 @@ export class GameRenderer {
   private volumeCards: THREE.Mesh[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
+    this.quality = readQuality();
+    this.planarLong = this.quality === "high" ? 1024 : 512;
+    // Option A: cube is hull env only (track stays hidden). Med: 32px / 16 frames. High: 64px / 6. Low: none.
+    this.cubeInterval = this.quality === "high" ? 6 : 16;
+    this.shadowExtent = this.quality === "high" ? 56 : 48;
     this.dprCap = Math.min(window.devicePixelRatio || 1, 1.25);
     this.dpr = this.dprCap;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
@@ -148,7 +168,7 @@ export class GameRenderer {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.18;
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = this.quality !== "low";
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.info.autoReset = false;
     this.camera = new CameraRig(window.innerWidth / window.innerHeight);
@@ -161,8 +181,9 @@ export class GameRenderer {
     this.dir = new THREE.DirectionalLight(0xffd4a0, 1.85);
     this.dir.position.copy(this.sunOffset);
     this.dir.target.position.set(0, 0, 0);
-    this.dir.castShadow = true;
-    this.dir.shadow.mapSize.set(2048, 2048);
+    this.dir.castShadow = this.quality !== "low";
+    const shadowRes = this.quality === "high" ? 2048 : 1024;
+    this.dir.shadow.mapSize.set(shadowRes, shadowRes);
     this.dir.shadow.camera.near = 18;
     this.dir.shadow.camera.far = 220;
     this.dir.shadow.camera.left = -this.shadowExtent;
@@ -193,7 +214,8 @@ export class GameRenderer {
     this.waterMats.push(this.oceanMat);
     this.waterMeshes.push(ocean);
 
-    this.cubeRT = new THREE.WebGLCubeRenderTarget(64, { generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+    const cubeSize = this.quality === "high" ? 64 : 32;
+    this.cubeRT = new THREE.WebGLCubeRenderTarget(cubeSize, { generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
     this.cubeCam = new THREE.CubeCamera(2, 1600, this.cubeRT);
     this.scene.add(this.cubeCam);
 
@@ -209,7 +231,7 @@ export class GameRenderer {
     this.contacts = new ContactField();
     this.scene.add(this.contacts.group);
 
-    this.planarRT = new THREE.WebGLRenderTarget(1024, 576, {
+    this.planarRT = new THREE.WebGLRenderTarget(this.planarLong, Math.round((this.planarLong * 9) / 16 / 2) * 2, {
       type: THREE.HalfFloatType,
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter,
@@ -348,12 +370,17 @@ export class GameRenderer {
       else if (cam === "finish") this.camera.finish(player, dt, track);
       else this.camera.follow(player, dt, boosting, superOn, track);
       this.sky.position.copy(this.camera.camera.position);
-      if (cam !== "showcase") {
+      if (this.quality !== "low" && !(cam === "showcase" && this.cubeCaptured)) {
         this.cubeTick++;
-        if (this.cubeTick % 6 === 0) this.captureEnv(player.x, player.y + 8, player.z);
+        if (!this.cubeCaptured || this.cubeTick % this.cubeInterval === 0) {
+          this.captureEnv(player.x, player.y + 8, player.z);
+          this.cubeCaptured = true;
+        }
       }
       const q = queryCourse(track, player.x, player.y, player.z, player.courseT);
-      this.capturePlanar(q.waterY + gerstnerHeight(player.x, player.z, time));
+      if (this.shouldUpdatePlanar(dt, cam)) {
+        this.capturePlanar(q.waterY + gerstnerHeight(player.x, player.z, time));
+      }
     }
     if (this.punch > 0) {
       this.hemi.intensity += this.punch * 0.7;
@@ -361,17 +388,18 @@ export class GameRenderer {
       this.renderer.toneMappingExposure += this.punch * 0.14;
       this.punch = Math.max(0, this.punch - dt * 4.2);
     }
-    this.bloom.strength = (superOn ? 0.38 : boosting ? 0.28 : 0.2) + this.punch * 0.35;
+    this.bloom.strength = this.quality === "low" ? 0 : (superOn ? 0.38 : boosting ? 0.28 : 0.2) + this.punch * 0.35;
     this.adaptPixelRatio(dt);
     this.renderer.info.reset();
     this.composer.render();
   }
 
-  frameStats(): { calls: number; triangles: number; dpr: number } {
+  frameStats(): { calls: number; triangles: number; dpr: number; planarOn: boolean } {
     return {
       calls: this.renderer.info.render.calls,
       triangles: this.renderer.info.render.triangles,
       dpr: this.dpr,
+      planarOn: this.quality !== "low" && (this.canalMat?.uniforms.uHasPlanar.value ?? 0) > 0.5,
     };
   }
 
@@ -488,8 +516,18 @@ export class GameRenderer {
     this.hazeBoostMat.uniforms.uOpacity.value = superOn ? 0.14 : boosting ? 0.09 : 0;
   }
 
+  private shouldUpdatePlanar(dt: number, cam: CameraMode): boolean {
+    if (this.quality === "low") return false;
+    this.planarTick++;
+    // After warmup, hitch-skip with DPR slow streak so reflections don't strobe on/off.
+    if (this.dprWarmup <= 0 && (dt > 0.02 || this.dprSlow > 18)) return false;
+    if (cam === "showcase") return this.planarTick % 8 === 1;
+    if (this.quality === "high") return true;
+    return this.planarTick % 2 === 1;
+  }
+
   private sizePlanar(w: number, h: number): void {
-    const long = 1024;
+    const long = this.planarLong;
     const aspect = w / Math.max(h, 1);
     const rw = aspect >= 1 ? long : Math.max(256, Math.round((long * aspect) / 2) * 2);
     const rh = aspect >= 1 ? Math.max(256, Math.round(long / aspect / 2) * 2) : long;

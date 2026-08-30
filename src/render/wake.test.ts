@@ -22,7 +22,7 @@ describe("transom wake", () => {
     expect(ribbonLength(36, false, true)).toBeGreaterThan(ribbonLength(12, false, true));
     expect(ribbonLength(36, true, true)).toBeGreaterThan(ribbonLength(36, false, true) + 2);
     expect(ribbonLength(36, true, true)).toBeGreaterThan(ribbonLength(36, true, false));
-    expect(ribbonLength(80, true, true)).toBeLessThanOrEqual(16.5);
+    expect(ribbonLength(80, true, true)).toBeLessThanOrEqual(19);
   });
 
   it("places a short aft ribbon on Gerstner water for every live hull", () => {
