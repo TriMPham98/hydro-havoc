@@ -28,11 +28,13 @@ describe("pickups", () => {
     player.z = blue.z;
     const blueHits = stepPickups(track, [ai, player], 0, 1);
     expect(blueHits.some((e) => e.kind === "blue" && e.boat === player)).toBe(true);
-    expect(player.boostFuel).toBeCloseTo(BLUE_BOOST);
+    expect(player.pendingBoost).toBeCloseTo(BLUE_BOOST);
+    expect(player.boostFuel).toBe(0);
     expect(ai.boostFuel).toBe(0);
 
     blue.taken = 0;
-    player.boostFuel = 0;
+    player.pendingBoost = 0;
+    player.jetBay = 0;
     player.x = red.x;
     player.y = red.y;
     player.z = red.z;
@@ -41,7 +43,8 @@ describe("pickups", () => {
     ai.z = red.z;
     const redHits = stepPickups(track, [ai, player], 0, 2);
     expect(redHits.some((e) => e.kind === "red" && e.boat === player)).toBe(true);
-    expect(player.boostFuel).toBeCloseTo(RED_BOOST);
+    expect(player.pendingBoost).toBeCloseTo(RED_BOOST);
+    expect(player.boostFuel).toBe(0);
 
     player.x = sup.x;
     player.y = sup.y;
@@ -51,7 +54,8 @@ describe("pickups", () => {
     ai.z = sup.z;
     const superHits = stepPickups(track, [ai, player], 0, 3);
     expect(superHits.some((e) => e.kind === "super" && e.boat === player)).toBe(true);
-    expect(player.superBoostRemaining).toBeGreaterThan(0);
+    expect(player.pendingSuper).toBeGreaterThan(0);
+    expect(player.superBoostRemaining).toBe(0);
     expect(ai.superBoostRemaining).toBe(0);
   });
 
@@ -78,7 +82,8 @@ describe("pickups", () => {
     player.z = boostCrate.z;
     const crateHits = stepPickups(track, [ai, player], 0, 2);
     expect(crateHits.some((e) => e.kind === "crate-boost" && e.boat === player)).toBe(true);
-    expect(player.boostFuel).toBeGreaterThan(0);
+    expect(player.pendingBoost).toBeGreaterThan(0);
+    expect(player.boostFuel).toBe(0);
 
     ai.x = mineCrate.x;
     ai.y = mineCrate.y;

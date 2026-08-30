@@ -511,6 +511,15 @@ button.ghost {
   background: linear-gradient(90deg, #1477ff, var(--cyan));
 }
 
+.hud.bay-lock .meter.boost .meter-fill > i {
+  opacity: 0.55;
+  background: repeating-linear-gradient(
+    90deg,
+    #1477ff 0 10px,
+    rgba(46, 230, 255, 0.35) 10px 18px
+  );
+}
+
 .meter.super .meter-fill > i {
   background: linear-gradient(90deg, #ffb020, var(--super));
 }

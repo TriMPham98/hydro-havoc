@@ -10,7 +10,7 @@ import {
 } from "./constants";
 import type { Boat } from "./Boat";
 import { headingVector } from "./Boat";
-import { spendBoost } from "./BoostSystem";
+import { spendBoost, tickBay } from "./BoostSystem";
 import { tickJumpHold, tryHydroJump } from "./HydroJump";
 import { clamp, lerp, wrapAngle } from "./math";
 import { queryCourse, resolveBank, respawnPose, slowBandDrag } from "./Track";
@@ -43,6 +43,7 @@ export function stepBoat(
 ): ControllerResult {
   boat.time += dt;
   if (boat.jetIgnite > 0) boat.jetIgnite = Math.max(0, boat.jetIgnite - dt);
+  tickBay(boat, dt);
   const result: ControllerResult = {
     bankHit: false,
     landed: false,

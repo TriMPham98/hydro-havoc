@@ -132,7 +132,7 @@ class HullWake {
     const fwd = headingVector(boat.yaw);
     const rightX = fwd.z;
     const rightZ = -fwd.x;
-    const boosting = boat.boostHeld && (boat.boostFuel > 0 || boat.superBoostRemaining > 0);
+    const boosting = boat.boostHeld && (boat.jetBay <= 0 && (boat.boostFuel > 0 || boat.superBoostRemaining > 0));
     const wet = boat.onWater && !boat.airborne ? 1 : 0;
     const speedK = saturate(boat.speed / 28);
     const len = ribbonLength(boat.speed, boosting, this.player);

@@ -10,7 +10,7 @@ import { assignAIBoats, driveAI } from "../sim/AIRacer";
 import { stepBoat } from "../sim/BoatController";
 import { resetRamTable, resolveHulls } from "../sim/Collision";
 import { AI_COUNT, FIXED_DT, MAX_FRAME_DT } from "../sim/constants";
-import { igniteJet } from "../sim/BoostSystem";
+import { boostLive, igniteJet } from "../sim/BoostSystem";
 import { lerp } from "../sim/math";
 import { stepPickups } from "../sim/Pickups";
 import {
@@ -385,7 +385,7 @@ export class Game {
       this.parkShowcase();
     }
 
-    const boosting = this.player.boostHeld && (this.player.boostFuel > 0 || this.player.superBoostRemaining > 0);
+    const boosting = this.player.boostHeld && boostLive(this.player);
     const voice = this.player.def.id === "ironwake" ? 2 : this.player.def.id === "vesper" ? 1 : 0;
     this.audio.setEngine(this.player.speed, boosting, voice, this.player.airborne);
   }

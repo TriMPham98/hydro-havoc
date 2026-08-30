@@ -9,8 +9,10 @@ export const BOOST_CAP = 5;
 export const BLUE_BOOST = 1.5;
 export const RED_BOOST = 3;
 export const SUPER_DURATION = 2;
-/** Pickup spool-up window. Visual slam is instant; this is how long the overshoot holds. */
-export const JET_IGNITE = 0.55;
+/** Uniform missile-bay deploy: pickup → doors/rack → boost armed. Same on every hull. */
+export const JET_BAY_DELAY = 0.5;
+/** Pickup spool / title flash. Matches the bay so the plume lands as the can locks. */
+export const JET_IGNITE = JET_BAY_DELAY;
 export const RAM_BOOST = 1;
 export const JUMP_COST = 0.35;
 export const JUMP_WINDOW = 0.18;

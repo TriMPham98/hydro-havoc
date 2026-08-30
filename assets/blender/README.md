@@ -44,11 +44,11 @@ Named sockets the runtime expects:
 - `turbineGlow` (+ `turbineGlow_1`) — fallback cone, opacity driven in-game
 - `TurbineFan` / `TurbineFan_0` — compressor, spun on boost / pickup ignite
 - `JetPetal_*` — nozzle petals, flare open when the jet lights
-- `JetSled` / `JetSled_0` — hinged booster; rest pose is folded at the transom, `JetSledOut` is the firing pose
-- `JetDoor_*` — bay doors that hinge open before the can drops aft
+- `JetSled` / `JetSled_0` — missile-bay rack; rest pose is **inside** the transom well, `JetSledOut` is the locked firing pose (aft, slightly lower)
+- `JetDoor_*` — bomb-bay leaves that open before the rack translates the can out
 - `propeller` / `PropBlade_*` — lofted hydro blades, spin with speed
 
-Pickup ignite (Hydro Thunder): collecting blue/red/super or a boost crate opens the bay doors, hinges the booster out of the transom, spools the fan, and flashes a water-jet plume once the nozzle points aft. While fuel remains the sled stays deployed; empty fuel retracts it.
+Pickup (Hydro Thunder): collecting blue/red/super or a boost crate opens the bay doors, translates the booster out of the hull on a rack (0.5 s, same on every boat), then arms boost. While fuel remains the sled stays deployed; empty fuel retracts it.
 
 ## Hull language
 

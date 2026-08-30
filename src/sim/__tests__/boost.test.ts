@@ -7,7 +7,7 @@ import {
   collectPickup,
   spendBoost,
 } from "../BoostSystem";
-import { BOOST_CAP, JET_IGNITE, SUPER_DURATION } from "../constants";
+import { BOOST_CAP, JET_BAY_DELAY, JET_IGNITE, SUPER_DURATION } from "../constants";
 import { buildRiptideRefinery } from "../../data/tracks/riptideRefinery";
 import { stepPickups } from "../Pickups";
 
@@ -22,7 +22,38 @@ describe("boost system", () => {
     const boat = createBoat("p", "skimmer", false);
     collectPickup(boat, "blue");
     collectPickup(boat, "red");
-    expect(boat.boostFuel).toBeCloseTo(4.5);
+    expect(boat.pendingBoost).toBeCloseTo(4.5);
+    expect(boat.boostFuel).toBe(0);
+    expect(boat.jetBay).toBeCloseTo(JET_BAY_DELAY);
+  });
+
+  it("arms boost only after the uniform bay delay", () => {
+    const boat = createBoat("p", "skimmer", false);
+    const track = buildRiptideRefinery();
+    const start = track.main.getFrameAtT(0.05);
+    boat.x = start.x;
+    boat.y = start.y + 0.8;
+    boat.z = start.z;
+    boat.yaw = Math.atan2(start.tx, start.tz);
+    collectPickup(boat, "blue");
+    boat.boostHeld = true;
+    stepBoat(boat, track, 1 / 60, 0, false);
+    expect(boat.boostFuel).toBe(0);
+    const spendEarly = spendBoost(boat, 1 / 60);
+    expect(spendEarly.usingBoost).toBe(false);
+    boat.boostHeld = false;
+    for (let t = 0; t < JET_BAY_DELAY; t += 1 / 60) stepBoat(boat, track, 1 / 60, t, false);
+    expect(boat.jetBay).toBe(0);
+    expect(boat.boostFuel).toBeCloseTo(1.5);
+  });
+
+  it("skips the delay when the bay is already deployed", () => {
+    const boat = createBoat("p", "skimmer", false);
+    boat.boostFuel = 1;
+    collectPickup(boat, "red");
+    expect(boat.jetBay).toBe(0);
+    expect(boat.boostFuel).toBeCloseTo(4);
+    expect(boat.pendingBoost).toBe(0);
   });
 
   it("stores normal fuel while super is active", () => {
@@ -125,8 +156,9 @@ describe("AI boost pickups", () => {
     player.z = p.z;
     const got = stepPickups(track, [ai, player], 0.016, 2);
     expect(got.some((e) => e.kind === "blue" && e.boat === player)).toBe(true);
-    expect(player.boostFuel).toBeGreaterThan(0);
+    expect(player.pendingBoost).toBeGreaterThan(0);
     expect(ai.boostFuel).toBe(0);
+    expect(ai.pendingBoost).toBe(0);
   });
 
   it("does not let AI open a boost crate", () => {

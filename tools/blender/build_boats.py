@@ -882,7 +882,7 @@ def sponson_ring(cfg: BoatCfg, u, side, segs=18):
 def make_sponson(cfg: BoatCfg, side, mats, parent):
     label = "R" if side > 0 else "L"
     corners = sponson_corners(cfg)
-    n_stat = 26
+    n_stat = 12
     segs = len(corners)
     rings = []
     f_bow = cfg.sponson_f1
@@ -901,11 +901,10 @@ def make_sponson(cfg: BoatCfg, side, mats, parent):
         tip_end=tip,
         crease_js={CHINE_INDEX, CHINE_INDEX + 1},
     )
-    crease_by_angle(mesh, 36.0)
+    crease_by_angle(mesh, 26.0)
     recalc_normals(mesh)
     obj = new_mesh_obj(f"Sponson_{label}", mesh, parent=parent, mat=mats["paint"])
-    shade_smooth(obj, 36)
-    add_subdiv(obj, levels=2, render=2)
+    shade_smooth(obj, 22)
 
     rail_len = (cfg.sponson_f1 - cfg.sponson_f0) * 0.72
     rail_f = lerp(cfg.sponson_f0, cfg.sponson_f1, 0.38)
@@ -1038,18 +1037,17 @@ def afterplane_ring(cfg: BoatCfg, u, segs=16):
 
 
 def make_afterplane(cfg: BoatCfg, mats, parent):
-    n_stat = 16
+    n_stat = 8
     rings = []
     for i in range(n_stat):
         u = i / (n_stat - 1)
         ring, _ = afterplane_ring(cfg, u)
         rings.append(ring)
     mesh = loft_quads("Afterplane", rings, cap_start=True, cap_end=True, crease_js={2, 7})
-    crease_by_angle(mesh, 36)
+    crease_by_angle(mesh, 26)
     recalc_normals(mesh)
     obj = new_mesh_obj("Afterplane", mesh, parent=parent, mat=mats["paint"])
-    shade_smooth(obj, 34)
-    add_subdiv(obj, 2, 2)
+    shade_smooth(obj, 22)
 
     # Smaller gunmetal plate so paint wraps the transom instead of a grey box.
     plate_w = 0.95 if cfg.style == "needle" else 1.22 if cfg.style == "cat" else 1.12
@@ -1086,7 +1084,7 @@ def make_tunnel_deck(cfg: BoatCfg, mats, parent):
     f1 = cfg.sponson_f1 - cfg.pickle
     if f1 <= f0 + 0.4:
         f1 = f0 + 0.8
-    n_l, n_w = 14, 10
+    n_l, n_w = 8, 6
     # Unlimited: leave sponsons as separate masses. Cat: roof the full tunnel.
     inset = 0.38 if cfg.style == "unlimited" else 0.22 if cfg.style == "needle" else 0.10
     half = cfg.sponson_cx - cfg.sponson_hw * inset
@@ -1123,8 +1121,7 @@ def make_tunnel_deck(cfg: BoatCfg, mats, parent):
                 pass
     bmesh.ops.solidify(bm, geom=list(bm.faces) + list(bm.edges) + list(bm.verts), thickness=thick)
     obj = bm_to_obj("TunnelDeck", bm, parent=parent, mat=mats["paint"])
-    shade_smooth(obj, 50)
-    add_subdiv(obj, 1, 1)
+    shade_smooth(obj, 28)
 
     stripe_len = max(0.8, f1 - f0 - 0.35)
     stripe_w = 0.14 if cfg.style == "unlimited" else 0.08 if cfg.style == "needle" else 0.11
@@ -1139,7 +1136,7 @@ def make_tunnel_deck(cfg: BoatCfg, mats, parent):
 
 
 def make_cowling(cfg: BoatCfg, mats, parent):
-    n_stat, segs = 16, 16
+    n_stat, segs = 8, 8
     rings = []
     for i in range(n_stat):
         u = i / (n_stat - 1)
@@ -1149,19 +1146,19 @@ def make_cowling(cfg: BoatCfg, mats, parent):
             env = math.sin(math.pi * clamp(u * 0.94 + 0.03)) ** 0.48
             hw = cfg.cowling_w * 0.5 * (0.18 + 0.82 * env)
             hh = cfg.cowling_h * (0.38 + 0.62 * env)
-            nx, nz = 3.2, 2.6
+            nx, nz = 5.4, 4.6
         elif cfg.style == "unlimited":
             # Allison-style engine hump: volume lives in the aft 2/3.
             env = math.sin(math.pi * clamp(u * 0.82 + 0.04)) ** 0.92
             hw = cfg.cowling_w * 0.5 * (0.42 + 0.58 * env)
             hh = cfg.cowling_h * (0.55 + 0.55 * env)
-            nx, nz = 2.4, 2.1
+            nx, nz = 5.0, 4.2
         else:
             # Low F1 cat cowl, compact.
             env = math.sin(math.pi * clamp(u * 0.96 + 0.02)) ** 0.78
             hw = cfg.cowling_w * 0.5 * (0.30 + 0.70 * env)
             hh = cfg.cowling_h * (0.42 + 0.58 * env)
-            nx, nz = 2.9, 2.5
+            nx, nz = 5.2, 4.4
         z0 = cfg.deck_z + 0.015
         ring = []
         for k in range(segs):
@@ -1172,11 +1169,10 @@ def make_cowling(cfg: BoatCfg, mats, parent):
             ring.append(design_to_blender(lx, f, z0 + lz + hh * 0.55))
         rings.append(ring)
     mesh = loft_quads("Cowling", rings, cap_start=True, cap_end=True)
-    crease_by_angle(mesh, 52)
+    crease_by_angle(mesh, 28)
     recalc_normals(mesh)
     obj = new_mesh_obj("Cowling", mesh, parent=parent, mat=mats["paint"])
-    shade_smooth(obj, 34)
-    add_subdiv(obj, 1, 2)
+    shade_smooth(obj, 22)
 
     for k, ff in enumerate((0.22, 0.48, 0.74)):
         f = lerp(cfg.cowling_f0, cfg.cowling_f1, ff)
@@ -1208,8 +1204,7 @@ def make_cowling(cfg: BoatCfg, mats, parent):
             parent=parent,
             mat=mats["paint"],
         )
-        shade_smooth(neck, 36)
-        add_subdiv(neck, 1, 2)
+        shade_smooth(neck, 28)
         bulk = add_cube(
             "EngineBulkhead",
             (0.82, 0.20, 0.30),
@@ -1217,15 +1212,14 @@ def make_cowling(cfg: BoatCfg, mats, parent):
             parent=parent,
             mat=mats["paint"],
         )
-        shade_smooth(bulk, 36)
-        add_subdiv(bulk, 1, 1)
+        shade_smooth(bulk, 28)
     return obj
 
 
 def make_canopy(cfg: BoatCfg, mats, parent):
     """Raked hydro canopy loft — not a sphere. Style sets bubble vs needle vs F1 tub."""
     sx, sy, sz = cfg.canopy_s
-    n_stat, segs = 10, 12
+    n_stat, segs = 6, 8
     if cfg.style == "unlimited":
         z0 = cfg.deck_z + 0.02
     else:
@@ -1259,8 +1253,7 @@ def make_canopy(cfg: BoatCfg, mats, parent):
     crease_by_angle(mesh, 60)
     recalc_normals(mesh)
     glass = new_mesh_obj("CanopyGlass", mesh, parent=parent, mat=mats["glass"])
-    shade_smooth(glass, 22)
-    add_subdiv(glass, 1, 1)
+    shade_smooth(glass, 18)
 
     # Carbon tub under the glass
     frame = add_cube(
@@ -1270,8 +1263,7 @@ def make_canopy(cfg: BoatCfg, mats, parent):
         parent=parent,
         mat=mats["cabin"],
     )
-    shade_smooth(frame, 45)
-    add_subdiv(frame, 1, 1)
+    shade_smooth(frame, 32)
 
     brow_f = cfg.canopy_f + sy * (0.55 if cfg.style == "needle" else 0.42)
     brow = add_cube(
@@ -1412,8 +1404,7 @@ def make_wing(cfg: BoatCfg, mats, parent):
     mesh = loft_quads("RearWing", rings, cap_start=True, cap_end=True)
     crease_by_angle(mesh, 50)
     obj = new_mesh_obj("RearWing", mesh, parent=parent, mat=mats["cabin"])
-    shade_smooth(obj, 35)
-    add_subdiv(obj, 1, 1)
+    shade_smooth(obj, 24)
 
     # Vertical fences that sit in the wing tip, not hanging flag cubes.
     ep_h = 0.13 if cfg.style == "needle" else 0.18 if cfg.style == "cat" else 0.24
@@ -1439,8 +1430,7 @@ def make_wing(cfg: BoatCfg, mats, parent):
             parent=parent,
             mat=mats["gunmetal"],
         )
-        shade_smooth(strut, 40)
-        add_subdiv(strut, 1, 1)
+        shade_smooth(strut, 32)
         foot = add_cube(
             "WingPylonFoot",
             (0.20, cfg.wing_chord * 0.88, 0.050),
@@ -1786,27 +1776,15 @@ def _orient_petal(ang):
     return m.to_euler("XYZ")
 
 
-def _jet_stow_euler(cfg: BoatCfg, x: float):
-    """Fold the can up against the transom (Blender +X), under the rear wing."""
-    if cfg.style == "unlimited":
-        return (math.radians(55.0), 0.0, 0.0)
-    if cfg.style == "needle":
-        splay = math.radians(12.0)
-        yaw = -splay if x > 0 else splay
-        return (math.radians(52.0), 0.0, yaw)
-    return (math.radians(58.0), 0.0, 0.0)
-
-
 def make_jet(cfg: BoatCfg, mats, parent):
-    """Transom hinge booster. Stowed JetSled is folded up at the transom lip.
+    """Transom missile bay. Stowed JetSled sits INSIDE the afterplane, identity rot.
 
-    Pickup: runtime slerps JetSled toward JetSledOut (aft, identity rot) after
-    the bay doors open. Moving hardware is parented to the sled.
+    Pickup: doors open, then the rack translates the can aft (and slightly down)
+    to JetSledOut. Moving hardware is parented to the sled.
     """
     transom_f = cfg.after_f0
     specs = _jet_specs(cfg)
     dual = len(specs) > 1
-    lock = 0.26 if cfg.style == "unlimited" else 0.20 if cfg.style == "needle" else 0.22
 
     grate_w = 0.42 if cfg.style == "needle" else 0.70 if cfg.style == "cat" else 0.55
     grate = add_cube(
@@ -1832,79 +1810,64 @@ def make_jet(cfg: BoatCfg, mats, parent):
         y_can = length * 0.38
         y_exit = length * 0.78
         y_fan = length * 0.62
-        sled_f = transom_f + 0.04
-        fold = _jet_stow_euler(cfg, x)
+        lock = 0.28 if cfg.style == "unlimited" else 0.18 if cfg.style == "needle" else 0.22
+        drop = 0.10 if cfg.style == "unlimited" else 0.07
+        sled_f = transom_f + length * 0.92
+        sled_z = z + drop
 
-        bay = add_cylinder(
-            f"JetBay{suf}",
-            r * 1.28,
-            0.16,
-            design_to_blender(x, transom_f + 0.04, z),
+        well = add_cube(
+            f"JetBayWell{suf}",
+            (r * 2.35, length * 0.95, r * 2.15),
+            design_to_blender(x, transom_f + length * 0.48, z + drop * 0.4),
             parent=parent,
             mat=mats["gunmetal"],
-            rot=(math.radians(90), 0, 0),
-            segs=16,
-            radius2=r * 1.18,
         )
-        shade_smooth(bay, 32)
-        collar = add_cylinder(
+        shade_smooth(well, 70)
+        bay = add_cube(
+            f"JetBay{suf}",
+            (r * 2.15, 0.06, r * 2.05),
+            design_to_blender(x, transom_f + 0.02, z),
+            parent=parent,
+            mat=mats["cabin"],
+        )
+        shade_smooth(bay, 70)
+        collar = add_cube(
             f"JetCollar{suf}",
-            r * 1.32,
-            0.048,
+            (r * 2.45, 0.04, r * 2.25),
             design_to_blender(x, transom_f - 0.01, z),
             parent=parent,
             mat=mats["chrome"],
-            rot=(math.radians(90), 0, 0),
-            segs=16,
         )
-        shade_smooth(collar, 40)
+        shade_smooth(collar, 60)
 
-        # Pivot barrel along starboard (Blender +X) plus short hinge arms.
-        knuckle = add_cylinder(
-            f"JetHinge{suf}",
-            r * 0.30,
-            r * 1.70,
-            design_to_blender(x, transom_f, z),
-            parent=parent,
-            mat=mats["chrome"],
-            rot=(0.0, math.radians(90), 0.0),
-            segs=12,
-        )
-        shade_smooth(knuckle, 36)
+        rail_len = length * 0.92 + lock
+        rail_f = transom_f + (length * 0.92 - lock) * 0.5
         for side in (-1, 1):
-            ear = add_cube(
-                f"JetHingeEar{suf}_{'R' if side > 0 else 'L'}",
-                (0.024, 0.090, 0.058),
-                design_to_blender(x + side * r * 0.92, transom_f + 0.02, z),
-                parent=parent,
-                mat=mats["gunmetal"],
-            )
-            shade_smooth(ear, 55)
-            arm = add_cube(
+            rail = add_cube(
                 f"JetRail{suf}_{'R' if side > 0 else 'L'}",
-                (0.016, 0.10, 0.022),
-                design_to_blender(x + side * (r * 1.18), transom_f + 0.03, z),
+                (0.018, rail_len, 0.024),
+                design_to_blender(x + side * (r * 1.22), rail_f, z + drop * 0.5),
                 parent=parent,
                 mat=mats["chrome"],
             )
-            shade_smooth(arm, 55)
+            shade_smooth(rail, 60)
 
-        # Blast doors — closed over the bay; runtime hinges them with deploy.
+        # Bomb-bay doors — top / bottom leaves covering the transom mouth.
         for di, dang in enumerate((-1, 1)):
             door = add_cube(
                 f"JetDoor{suf}_{di}",
-                (r * 1.35, 0.028, r * 1.15),
-                design_to_blender(x, transom_f - 0.04, z + dang * r * 0.12),
+                (r * 2.20, 0.032, r * 1.12),
+                design_to_blender(x, transom_f - 0.03, z + dang * r * 0.58),
                 parent=parent,
                 mat=mats["cabin"],
             )
-            door.rotation_euler = (dang * math.radians(10), 0.0, 0.0)
-            shade_smooth(door, 40)
+            door.rotation_euler = (dang * math.radians(6), 0.0, 0.0)
+            shade_smooth(door, 55)
 
         sled = new_empty(f"JetSled{suf}", 0.18)
         sled.parent = parent
-        sled.location = design_to_blender(x, sled_f, z)
-        sled.rotation_euler = fold
+        sled.location = design_to_blender(x, sled_f, sled_z)
+        sled.rotation_euler = (0.0, 0.0, 0.0)
         out = new_empty(f"JetSledOut{suf}", 0.12)
         out.parent = parent
         out.location = design_to_blender(x, transom_f - lock, z)
@@ -1921,8 +1884,7 @@ def make_jet(cfg: BoatCfg, mats, parent):
             segs=18,
             radius2=r * 0.94,
         )
-        shade_smooth(housing, 28)
-        add_subdiv(housing, 1, 1)
+        shade_smooth(housing, 32)
         horn = add_cube(
             f"JetHingeHorn{suf}",
             (r * 1.20, 0.055, 0.042),
@@ -1943,8 +1905,7 @@ def make_jet(cfg: BoatCfg, mats, parent):
             segs=16,
             radius2=r * 1.26,
         )
-        shade_smooth(bell, 22)
-        add_subdiv(bell, 1, 1)
+        shade_smooth(bell, 28)
 
         liner = add_cylinder(
             f"JetLiner{suf}",

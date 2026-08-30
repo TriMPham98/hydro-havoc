@@ -1,7 +1,7 @@
 import { RAM_BOOST, RAM_COOLDOWN, RAM_SPEED_DELTA } from "./constants";
 import type { Boat } from "./Boat";
 import { headingVector } from "./Boat";
-import { addNormalBoost } from "./BoostSystem";
+import { addNormalBoost, boostLive } from "./BoostSystem";
 
 export interface RamEvent {
   attacker: Boat;
@@ -16,7 +16,7 @@ export function pairKey(a: string, b: string): string {
 }
 
 function boosting(boat: Boat): boolean {
-  return boat.boostHeld && (boat.boostFuel > 0 || boat.superBoostRemaining > 0);
+  return boat.boostHeld && boostLive(boat);
 }
 
 /** Oriented collision box matching the visual hull, slightly inside the paint. */

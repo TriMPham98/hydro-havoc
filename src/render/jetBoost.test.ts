@@ -10,6 +10,7 @@ function step(root: THREE.Group, over: Partial<Parameters<typeof updateJet>[1]> 
     superOn: false,
     ignite: 0,
     hasFuel: false,
+    bay: 0,
     speed: 12,
     dt: 1 / 60,
     time: 1,
@@ -22,7 +23,7 @@ function rigRoot(): { root: THREE.Group; sled: THREE.Object3D } {
   const root = new THREE.Group();
   const sled = new THREE.Object3D();
   sled.name = "JetSled_0";
-  sled.position.set(0, 0.34, -2.7);
+  sled.position.set(0, 0.42, -2.2);
   sled.quaternion.identity();
   root.add(sled);
   const marker = new THREE.Object3D();
@@ -51,34 +52,36 @@ function rigRoot(): { root: THREE.Group; sled: THREE.Object3D } {
 }
 
 describe("jet boost rig", () => {
-  it("hinges the booster on pickup instead of snapping it out", () => {
+  it("translates the booster out of the bay instead of rotating it", () => {
     const { root, sled } = rigRoot();
     const restQ = sled.quaternion.clone();
     const restZ = sled.position.z;
+    const restY = sled.position.y;
     const rig = getJetRig(root)!;
 
-    step(root, { ignite: JET_IGNITE, hasFuel: true });
-    expect(rig.deploy).toBeLessThan(0.45);
+    step(root, { bay: JET_IGNITE, ignite: JET_IGNITE });
+    expect(rig.deploy).toBeLessThan(0.08);
+    expect(sled.position.z).toBeCloseTo(restZ, 2);
     expect(root.getObjectByName("jetPlume_0")?.visible).toBe(false);
 
-    for (let i = 0; i < 5; i++) step(root, { ignite: JET_IGNITE - i / 60, hasFuel: true, time: 1 + i / 60 });
-    expect(sled.quaternion.angleTo(restQ)).toBeGreaterThan(0.2);
+    step(root, { bay: JET_IGNITE * 0.5, ignite: JET_IGNITE * 0.5, time: 1.25 });
+    expect(sled.quaternion.angleTo(restQ)).toBeLessThan(0.05);
+    expect(sled.position.z).toBeLessThan(restZ - 0.15);
 
-    for (let i = 0; i < 36; i++) step(root, { ignite: JET_IGNITE - 0.2, hasFuel: true, time: 2 + i / 60 });
+    for (let i = 0; i < 8; i++) step(root, { bay: 0, hasFuel: true, time: 2 + i / 60 });
     expect(rig.deploy).toBeGreaterThan(0.85);
-    expect(sled.quaternion.angleTo(new THREE.Quaternion())).toBeLessThan(0.2);
-    expect(sled.position.z).toBeLessThan(restZ - 0.08);
+    expect(sled.position.z).toBeLessThan(restZ - 0.45);
+    expect(sled.position.y).toBeLessThan(restY);
     expect(root.getObjectByName("jetPlume_0")?.visible).toBe(true);
   });
 
   it("does not slam deploy or fire the plume on the pickup frame", () => {
     const { root, sled } = rigRoot();
-    const restQ = sled.quaternion.clone();
+    const restZ = sled.position.z;
     const rig = getJetRig(root)!;
-    step(root, { ignite: JET_IGNITE, hasFuel: true });
-    expect(rig.deploy).toBeLessThan(0.4);
-    expect(rig.power).toBeLessThan(0.8);
-    expect(sled.quaternion.angleTo(restQ)).toBeLessThan(0.35);
+    step(root, { bay: JET_IGNITE, ignite: JET_IGNITE });
+    expect(rig.deploy).toBeLessThan(0.08);
+    expect(sled.position.z).toBeCloseTo(restZ, 2);
     expect(root.getObjectByName("jetPlume_0")?.visible).toBe(false);
   });
 

@@ -196,10 +196,11 @@ export class Overlay {
     this.clock.textContent = formatTime(dir.time);
     this.speed.textContent = String(Math.round(player.speed * 2.4)).padStart(2, "0");
     this.sector.textContent = sectorName(player.courseT, this.course);
-    this.boostFill.style.width = `${(player.boostFuel / BOOST_CAP) * 100}%`;
-    this.superFill.style.width = `${(player.superBoostRemaining / SUPER_DURATION) * 100}%`;
-    const hot = player.boostHeld && (player.boostFuel > 0 || player.superBoostRemaining > 0);
+    this.boostFill.style.width = `${((player.boostFuel + player.pendingBoost) / BOOST_CAP) * 100}%`;
+    this.superFill.style.width = `${((player.superBoostRemaining + player.pendingSuper) / SUPER_DURATION) * 100}%`;
+    const hot = player.boostHeld && player.jetBay <= 0 && (player.boostFuel > 0 || player.superBoostRemaining > 0);
     this.hud.classList.toggle("boosting", hot);
+    this.hud.classList.toggle("bay-lock", player.jetBay > 0);
     this.hud.classList.toggle("super-on", player.superBoostRemaining > 0 && player.boostHeld);
     this.countdown.textContent = label === "GO" ? "GO" : "";
     this.gate.hidden = !label;

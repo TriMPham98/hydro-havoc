@@ -1,12 +1,13 @@
 import * as THREE from "three";
 import type { BoatDef } from "../data/boats";
-import { JET_IGNITE } from "../sim/constants";
+import { JET_BAY_DELAY, JET_IGNITE } from "../sim/constants";
 
 export type JetState = {
   boosting: boolean;
   superOn: boolean;
   ignite: number;
   hasFuel: boolean;
+  bay: number;
   speed: number;
   dt: number;
   time: number;
@@ -55,20 +56,17 @@ const GOLD_WHITE = new THREE.Color(0xfff4c8);
 const OPEN = new THREE.Quaternion();
 const AXIS_Z = new THREE.Vector3(0, 0, 1);
 const AXIS_X = new THREE.Vector3(1, 0, 0);
-const AXIS_Y = new THREE.Vector3(0, 1, 0);
 const DEPLOY_POS = new THREE.Vector3();
-const DEPLOY_Q = new THREE.Quaternion();
-const YAW_Q = new THREE.Quaternion();
 
 function smootherstep(t: number): number {
   const x = Math.min(1, Math.max(0, t));
   return x * x * x * (x * (x * 6 - 15) + 10);
 }
 
-function stowFold(id: string): number {
-  if (id === "ironwake") return 0.96;
-  if (id === "vesper") return 0.907;
-  return 1.012;
+function bayTravel(id: string): number {
+  if (id === "ironwake") return 0.95;
+  if (id === "vesper") return 0.6;
+  return 0.7;
 }
 
 function jetConeMaterial(core: number): THREE.ShaderMaterial {
@@ -253,24 +251,18 @@ export function bindJet(root: THREE.Group, def: BoatDef): JetRig {
     doors.push({ obj, rest, sign });
   }
 
-  const lock = def.id === "ironwake" ? 0.26 : def.id === "vesper" ? 0.2 : 0.22;
+  const travel = bayTravel(def.id);
   const sleds: Sled[] = [];
   for (const obj of collectNamed(root, /^JetSled(?:_\d+)?$/)) {
     const rest = obj.position.clone();
-    const restQ = obj.quaternion.clone();
     const marker = root.getObjectByName(obj.name.replace("JetSled", "JetSledOut"));
     const out = marker ? marker.position.clone() : rest.clone();
-    const outQ = marker ? marker.quaternion.clone() : restQ.clone();
-    if (restQ.angleTo(outQ) < 0.2) {
-      restQ.setFromAxisAngle(AXIS_X, stowFold(def.id));
-      if (def.id === "vesper") {
-        YAW_Q.setFromAxisAngle(AXIS_Y, obj.position.x >= 0 ? -0.244 : 0.244);
-        restQ.multiply(YAW_Q);
-      }
-    }
-    if (out.distanceTo(rest) < 0.08) {
-      const dir = out.distanceTo(rest) > 1e-4 ? out.clone().sub(rest).normalize() : new THREE.Vector3(0, 0, -1);
-      out.copy(rest).addScaledVector(dir, lock);
+    const outQ = marker ? marker.quaternion.clone() : new THREE.Quaternion();
+    // Missile bay is a rack translate, not a fold. Ignore leftover hinge rotations.
+    const restQ = outQ.clone();
+    if (out.distanceTo(rest) < travel * 0.45) {
+      const dir = out.distanceTo(rest) > 1e-4 ? out.clone().sub(rest).normalize() : new THREE.Vector3(0, -0.08, -1).normalize();
+      out.copy(rest).addScaledVector(dir, travel);
     }
     obj.position.copy(rest);
     obj.quaternion.copy(restQ);
@@ -324,8 +316,8 @@ export function updateJet(root: THREE.Object3D, state: JetState): void {
   const rig = jetRigs.get(root);
   if (!rig) return;
 
-  const pickupSlam = state.ignite > rig.prevIgnite + 0.02;
-  rig.prevIgnite = state.ignite;
+  const pickupSlam = state.ignite > rig.prevIgnite + 0.02 || state.bay > rig.prevIgnite + 0.02;
+  rig.prevIgnite = Math.max(state.ignite, state.bay);
 
   let targetPetal = 0;
   let targetPower = 0;
@@ -336,12 +328,12 @@ export function updateJet(root: THREE.Object3D, state: JetState): void {
     targetPower = state.superOn ? 1 : 0.84;
     targetDeploy = 1;
     spinTarget = 34;
-  } else if (state.ignite > 0) {
-    const flash = igniteCurve(state.ignite);
-    targetPetal = Math.min(1, 0.45 + flash * 0.55);
+  } else if (state.bay > 0 || state.ignite > 0) {
+    const flash = state.ignite > 0 ? igniteCurve(state.ignite) : 0.35;
+    targetPetal = Math.min(1, 0.35 + flash * 0.55);
     targetPower = flash;
     targetDeploy = 1;
-    spinTarget = 22 + flash * 14;
+    spinTarget = 16 + flash * 12;
   } else if (state.hasFuel) {
     targetPetal = 0.32;
     targetPower = 0.18;
@@ -351,25 +343,28 @@ export function updateJet(root: THREE.Object3D, state: JetState): void {
     spinTarget = 2.2 + Math.min(6, state.speed * 0.12);
   }
 
-  if (pickupSlam) {
-    rig.deploy = Math.max(rig.deploy, 0.1);
-    rig.spinRate = Math.max(rig.spinRate, 12);
-  }
+  if (pickupSlam) rig.spinRate = Math.max(rig.spinRate, 10);
+
   const kOut = 1 - Math.exp(-10 * state.dt);
   const kIn = 1 - Math.exp(-5.5 * state.dt);
   const kPower = 1 - Math.exp(-18 * state.dt);
-  const kPetal = 1 - Math.exp(-(state.boosting || state.ignite > 0 ? 18 : 10) * state.dt);
+  const kPetal = 1 - Math.exp(-(state.boosting || state.ignite > 0 || state.bay > 0 ? 18 : 10) * state.dt);
   rig.petal += (targetPetal - rig.petal) * kPetal;
   rig.power += (targetPower - rig.power) * kPower;
-  const kDeploy = targetDeploy >= rig.deploy ? kOut : kIn;
-  rig.deploy += (targetDeploy - rig.deploy) * kDeploy;
+  if (state.bay > 0) {
+    rig.deploy = 1 - state.bay / JET_BAY_DELAY;
+  } else if (targetDeploy >= 1) {
+    rig.deploy = Math.min(1, Math.max(rig.deploy, 0.92) + (1 - Math.max(rig.deploy, 0.92)) * kOut);
+  } else {
+    rig.deploy += (0 - rig.deploy) * kIn;
+  }
   rig.spinRate += (spinTarget - rig.spinRate) * (1 - Math.exp(-10 * state.dt));
   rig.spin += rig.spinRate * state.dt;
   const open = rig.petal * 0.48;
-  const deployT = Math.min(1, rig.deploy);
+  const deployT = Math.min(1, Math.max(0, rig.deploy));
   const doorT = Math.min(1, deployT / 0.28);
-  const hingeT = smootherstep((deployT - 0.06) / 0.86);
-  const fireGate = smootherstep((hingeT - 0.45) / 0.4);
+  const extendT = smootherstep((deployT - 0.16) / 0.78);
+  const fireGate = smootherstep((extendT - 0.82) / 0.18);
 
   for (const fan of rig.fans) fan.rotation.z = rig.spin;
   if (rig.prop) rig.prop.rotation.z += (state.speed * 2.2 + (state.boosting ? 9 : 0)) * state.dt;
@@ -385,10 +380,9 @@ export function updateJet(root: THREE.Object3D, state: JetState): void {
   }
 
   for (const sled of rig.sleds) {
-    DEPLOY_POS.lerpVectors(sled.rest, sled.out, hingeT);
+    DEPLOY_POS.lerpVectors(sled.rest, sled.out, extendT);
     sled.obj.position.copy(DEPLOY_POS);
-    DEPLOY_Q.copy(sled.restQ).slerp(sled.outQ, hingeT);
-    sled.obj.quaternion.copy(DEPLOY_Q);
+    sled.obj.quaternion.copy(sled.outQ);
   }
 
   const hot = rig.power > 0.04 && fireGate > 0.04;
@@ -466,17 +460,17 @@ export function addProceduralJet(root: THREE.Group, def: BoatDef): void {
   });
   xs.forEach((x, i) => {
     const suf = dual ? `_${i}` : "";
+    const depth = def.id === "ironwake" ? 0.65 : def.id === "vesper" ? 0.4 : 0.46;
+    const lock = def.id === "ironwake" ? 0.28 : 0.22;
+    const drop = 0.08;
     const sled = new THREE.Object3D();
     sled.name = `JetSled${suf}`;
-    sled.position.set(x, z, -transom);
-    sled.quaternion.setFromAxisAngle(AXIS_X, stowFold(def.id));
-    if (def.id === "vesper") {
-      sled.rotateY(x >= 0 ? -0.244 : 0.244);
-    }
+    sled.position.set(x, z + drop, -transom + depth);
+    sled.quaternion.identity();
     root.add(sled);
     const marker = new THREE.Object3D();
     marker.name = `JetSledOut${suf}`;
-    marker.position.set(x, z, -transom - (def.id === "ironwake" ? 0.26 : 0.22));
+    marker.position.set(x, z, -transom - lock);
     marker.quaternion.identity();
     root.add(marker);
     const housing = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.95, r * 1.1, 0.55, 12), gun);

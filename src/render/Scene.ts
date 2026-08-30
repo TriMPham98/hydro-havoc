@@ -10,6 +10,7 @@ import { gerstnerHeight } from "../sim/waterHeight";
 import { BOATS } from "../data/boats";
 import { applyHullHeat, createBoatMesh, getBoatTemplate, preloadBoatMeshes } from "./BoatMesh";
 import { updateJet } from "./JetBoost";
+import { boostLive } from "../sim/BoostSystem";
 import { CameraRig, type CameraMode } from "./CameraRig";
 import { ContactField } from "./Contact";
 import { Fx } from "./Fx";
@@ -330,7 +331,7 @@ export class GameRenderer {
       }
       mesh.position.set(boat.x, boat.y, boat.z);
       mesh.rotation.set(boat.pitch, boat.yaw, boat.roll);
-      const hot = boat.boostHeld && (boat.boostFuel > 0 || boat.superBoostRemaining > 0);
+      const hot = boat.boostHeld && boostLive(boat);
       const hasFuel = boat.boostFuel > 0 || boat.superBoostRemaining > 0;
       const superOn = boat.superBoostRemaining > 0 && (hot || boat.jetIgnite > 0.02);
       updateJet(mesh, {
@@ -338,6 +339,7 @@ export class GameRenderer {
         superOn,
         ignite: boat.jetIgnite,
         hasFuel,
+        bay: boat.jetBay,
         speed: boat.speed,
         dt,
         time,
@@ -367,8 +369,8 @@ export class GameRenderer {
       mat.uniforms.uTime.value = time;
       mat.uniforms.uCam.value.copy(camPos);
     }
-    const firing = !!player && player.boostHeld && (player.boostFuel > 0 || player.superBoostRemaining > 0);
-    const igniting = !!player && player.jetIgnite > 0.02;
+    const firing = !!player && player.boostHeld && boostLive(player);
+    const igniting = !!player && (player.jetIgnite > 0.02 || player.jetBay > 0.02);
     const boosting = firing || igniting;
     const superOn = !!player && player.superBoostRemaining > 0 && (firing || igniting);
     this.fx.update(track, boats, dt, time, boosting);
