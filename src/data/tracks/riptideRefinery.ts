@@ -26,9 +26,10 @@ const MAIN: ControlPoint[] = [
   { x: 930, y: 0, z: 170, width: 22, bankHeight: 4.4 },
   { x: 610, y: 0, z: 16, width: 22, bankHeight: 4.6 },
   { x: 348, y: 0, z: -150, width: 22, bankHeight: 4.6 },
-  { x: 84, y: 0, z: -86, width: 22, bankHeight: 5.0 },
-  { x: -28, y: 0, z: -22, width: 24, bankHeight: 4.8 },
-  { x: 0, y: 0, z: -14, width: 26, bankHeight: 4.6 },
+  { x: 140, y: 0, z: -100, width: 22, bankHeight: 4.8 },
+  { x: 40, y: 0, z: -85, width: 24, bankHeight: 4.8 },
+  { x: -6, y: 0, z: -52, width: 25, bankHeight: 4.7 },
+  { x: -8, y: 0, z: -28, width: 26, bankHeight: 4.6 },
 ];
 
 /** Parked hidden cut — spline kept, not meshed or queried. */

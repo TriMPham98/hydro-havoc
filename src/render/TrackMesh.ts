@@ -417,7 +417,7 @@ function dressProps(group: THREE.Group, track: TrackWorld): void {
 
   const tower = new THREE.Mesh(new THREE.CylinderGeometry(5, 7, 16, 10), rust);
   const hf = track.main.getFrameAtT(0.9);
-  tower.position.set(hf.x + hf.rx * -28, hf.y + 8, hf.z + hf.rz * -28);
+  tower.position.set(hf.x + hf.rx * -44, hf.y + 8, hf.z + hf.rz * -44);
   group.add(tower);
 
   const g = track.main.getFrameAtT(0.04);
@@ -545,12 +545,18 @@ function dressSkyline(group: THREE.Group, track: TrackWorld): void {
   for (let i = 0; i < sites.length; i++) {
     const f = track.main.getFrameAtT(sites[i]);
     const side = i % 2 === 0 ? -1 : 1;
+    const yaw = Math.atan2(f.tx, f.tz);
     const lat = f.width * 0.5 + 48 + i * 6;
     const x = f.x + f.rx * lat * side;
     const z = f.z + f.rz * lat * side;
     const h = 38 + i * 4;
     towerPoses.push({ x, y: f.y + h * 0.5, z, sy: h });
-    boomPoses.push({ x: x + 10 * side, y: f.y + 36 + i * 2, z });
+    boomPoses.push({
+      x: x + f.rx * 14 * side,
+      y: f.y + 36 + i * 2,
+      z: z + f.rz * 14 * side,
+      ry: yaw,
+    });
     cabPoses.push({ x, y: f.y + 38 + i * 2, z });
   }
   addInstanced(group, new THREE.BoxGeometry(6, 1, 6), steel, towerPoses);

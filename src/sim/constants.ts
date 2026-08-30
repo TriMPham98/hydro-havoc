@@ -28,3 +28,5 @@ export const LAP_COUNT = 3;
 export const AI_COUNT = 3;
 export const RUBBER_BAND = 0.14;
 export const LATERAL_PAD = 1.15;
+/** Scales yaw + slip from stick/keys. 1 is the original cabinet lock. */
+export const STEER_GAIN = 0.68;

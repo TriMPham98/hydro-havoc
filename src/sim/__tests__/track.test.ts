@@ -72,6 +72,20 @@ describe("track", () => {
     expect(track.main.totalLength).toBeGreaterThan(2200);
   });
 
+  it("closes the loop without a bank wall across the canal", () => {
+    const track = buildRiptideRefinery();
+    let maxJump = 0;
+    let prev = track.main.getFrameAtT(0.94);
+    for (let i = 1; i <= 80; i++) {
+      const t = 0.94 + (i / 80) * 0.06;
+      const f = track.main.getFrameAtT(t >= 1 ? t - 1 : t);
+      const jump = Math.abs(wrapAngle(Math.atan2(f.tx, f.tz) - Math.atan2(prev.tx, prev.tz)));
+      maxJump = Math.max(maxJump, jump);
+      prev = f;
+    }
+    expect(maxJump).toBeLessThan(0.55);
+  });
+
   it("parks the hull-select pose in the canal center", () => {
     const track = buildRiptideRefinery();
     const pose = showcasePose(track);

@@ -10,6 +10,7 @@ import { assignAIBoats, driveAI } from "../sim/AIRacer";
 import { stepBoat } from "../sim/BoatController";
 import { resetRamTable, resolveHulls } from "../sim/Collision";
 import { AI_COUNT, FIXED_DT, MAX_FRAME_DT } from "../sim/constants";
+import { lerp } from "../sim/math";
 import { stepPickups } from "../sim/Pickups";
 import {
   countdownLabel,
@@ -249,7 +250,8 @@ export class Game {
     } else if (this.mode === "race" && racing) {
       const locked = this.player.finished;
       this.player.throttle = locked ? 0 : input.throttle;
-      this.player.steer = locked ? 0 : input.steer;
+      const wantSteer = locked ? 0 : input.steer;
+      this.player.steer = lerp(this.player.steer, wantSteer, 1 - Math.exp(-9 * dt));
       this.player.brake = locked ? 0 : input.brake;
       this.player.boostHeld = locked ? false : input.boost;
       for (const boat of this.boats) {

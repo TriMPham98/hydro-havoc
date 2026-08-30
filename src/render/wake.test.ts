@@ -65,6 +65,20 @@ describe("transom wake", () => {
     expect(skirt.visible).toBe(true);
     expect(ribbon.visible).toBe(true);
 
+    const mid = Math.floor(pos.count / 2);
+    const tail = pos.count - 3;
+    const widthAt = (start: number, cols: number) => {
+      let minX = Infinity;
+      let maxX = -Infinity;
+      for (let i = 0; i < cols; i++) {
+        minX = Math.min(minX, pos.getX(start + i));
+        maxX = Math.max(maxX, pos.getX(start + i));
+      }
+      return maxX - minX;
+    };
+    const cols = 9;
+    expect(widthAt(tail - (tail % cols), cols)).toBeLessThan(widthAt(mid - (mid % cols), cols) * 0.55);
+
     const rest = minZ(ribbon);
     player.boostHeld = true;
     player.boostFuel = 3;

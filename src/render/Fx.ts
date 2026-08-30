@@ -83,8 +83,8 @@ function sheetMaterial(foam = false): THREE.ShaderMaterial {
       uniform float uOpacity;
       varying vec2 vUv;
       void main() {
-        float edge = smoothstep(0.0, 0.16, vUv.x) * smoothstep(1.0, 0.84, vUv.x);
-        float fade = pow(1.0 - vUv.y, 1.35);
+        float edge = smoothstep(0.0, 0.22, vUv.x) * smoothstep(1.0, 0.78, vUv.x);
+        float fade = pow(1.0 - vUv.y, 1.65);
         float a = edge * fade * uOpacity;
         if (a < 0.012) discard;
         gl_FragColor = vec4(uColor, a);
@@ -257,6 +257,17 @@ function spikedMine(): THREE.Group {
   return g;
 }
 
+function taperSheetGeometry(): THREE.BufferGeometry {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute([-0.5, 0, 0, 0.5, 0, 0, -0.1, 1, 0, 0.1, 1, 0], 3),
+  );
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 1, 1], 2));
+  geo.setIndex([0, 1, 2, 1, 3, 2]);
+  return geo;
+}
+
 function makeCloud(count: number, mat: THREE.ShaderMaterial): { pts: THREE.Points; vel: Float32Array } {
   const geo = new THREE.BufferGeometry();
   const pos = new Float32Array(count * 3);
@@ -309,7 +320,7 @@ export class Fx {
     this.sparksLife = new Float32Array(SPARK_COUNT);
     this.particles.name = "fxParticles";
     this.particles.add(this.spray, this.mist, this.trail, this.sparksPts);
-    const sheetGeo = new THREE.PlaneGeometry(1, 1);
+    const sheetGeo = taperSheetGeometry();
     sheetGeo.rotateX(-Math.PI / 2);
     const names = ["sprayTransom", "sprayChineL", "sprayChineR", "sprayFanL", "sprayFanR"];
     for (let i = 0; i < PLAYER_SHEETS; i++) {

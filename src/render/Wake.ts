@@ -47,18 +47,20 @@ function foamMaterial(skirt: boolean): THREE.ShaderMaterial {
       uniform float uSkirt;
       varying vec2 vUv;
       void main() {
-        float edge = smoothstep(0.28, 0.0, min(vUv.x, 1.0 - vUv.x));
-        float fade = pow(1.0 - vUv.y, 1.35);
+        float edge = smoothstep(0.42, 0.0, min(vUv.x, 1.0 - vUv.x));
+        float fade = pow(1.0 - vUv.y, 1.85);
+        float tail = 1.0 - smoothstep(0.72, 1.0, vUv.y);
         float streak = 0.82 + 0.18 * sin(vUv.y * 22.0 - uTime * 8.0 + vUv.x * 6.0);
         if (uSkirt > 0.5) {
           float stern = 1.0 - smoothstep(0.0, 0.3, abs(vUv.x - 0.5));
           edge = mix(0.35, 1.0, vUv.y) * mix(0.4, 1.0, stern);
           fade = mix(0.55, 1.0, stern) * mix(0.45, 1.0, vUv.y);
+          tail = 1.0;
           streak = 0.88 + 0.12 * sin(vUv.x * 40.0 - uTime * 6.0);
         }
         vec3 col = mix(uColorTeal, uColorFoam, clamp(edge * 0.85 + 0.2, 0.0, 1.0));
         col = mix(col, uColorBoost, uBoost * (0.25 + edge * 0.5));
-        float alpha = uOpacity * fade * mix(0.22, 0.95, edge) * streak;
+        float alpha = uOpacity * fade * tail * mix(0.0, 0.95, edge) * streak;
         if (alpha < 0.02) discard;
         gl_FragColor = vec4(col, alpha);
       }
@@ -93,6 +95,8 @@ function gridGeometry(rows: number, cols: number): THREE.BufferGeometry {
   return geo;
 }
 
+type TrailPt = { x: number; y: number; z: number; hx: number; hz: number; rx: number; rz: number };
+
 class HullWake {
   readonly group = new THREE.Group();
   private ribbon: THREE.Mesh;
@@ -103,11 +107,12 @@ class HullWake {
   private alongRows: number;
   private across: number;
   private ringRows: number;
+  private trail: TrailPt[] = [];
 
   constructor(id: string, player: boolean) {
     this.player = player;
-    this.alongRows = (player ? 16 : 10) + 1;
-    this.across = 5;
+    this.alongRows = (player ? 22 : 12) + 1;
+    this.across = player ? 9 : 5;
     this.ringRows = (player ? 24 : 16) + 1;
     this.ribbonMat = foamMaterial(false);
     this.skirtMat = foamMaterial(true);
@@ -132,6 +137,7 @@ class HullWake {
     const speedK = saturate(boat.speed / 28);
     const len = ribbonLength(boat.speed, boosting, this.player);
     const wave0 = gerstnerHeight(boat.x, boat.z, time);
+    this.pushTrail(boat, fwd.x, fwd.z, rightX, rightZ);
     this.fillRibbon(boat, time, fwd.x, fwd.z, rightX, rightZ, len, wave0, boosting);
     this.fillSkirt(boat, time, fwd.x, fwd.z, rightX, rightZ, wave0);
     const dens = this.player ? 1 : 0.62;
@@ -154,6 +160,60 @@ class HullWake {
     this.skirtMat.dispose();
   }
 
+  private pushTrail(boat: Boat, hx: number, hz: number, rx: number, rz: number): void {
+    const head = this.trail[0];
+    if (!head || Math.hypot(boat.x - head.x, boat.z - head.z) > 0.4) {
+      this.trail.unshift({ x: boat.x, y: boat.y, z: boat.z, hx, hz, rx, rz });
+      while (this.trail.length > 56) this.trail.pop();
+    } else {
+      head.x = boat.x;
+      head.y = boat.y;
+      head.z = boat.z;
+      head.hx = hx;
+      head.hz = hz;
+      head.rx = rx;
+      head.rz = rz;
+    }
+  }
+
+  private sampleTrail(
+    aft: number,
+    boat: Boat,
+    fwdX: number,
+    fwdZ: number,
+    rightX: number,
+    rightZ: number,
+  ): { x: number; y: number; z: number; rx: number; rz: number } {
+    if (this.trail.length < 2) {
+      return { x: boat.x - fwdX * aft, y: boat.y, z: boat.z - fwdZ * aft, rx: rightX, rz: rightZ };
+    }
+    let remain = aft;
+    for (let i = 0; i < this.trail.length - 1; i++) {
+      const a = this.trail[i];
+      const b = this.trail[i + 1];
+      const seg = Math.hypot(a.x - b.x, a.z - b.z);
+      if (remain <= seg) {
+        const u = seg > 1e-4 ? remain / seg : 0;
+        return {
+          x: a.x + (b.x - a.x) * u,
+          y: a.y + (b.y - a.y) * u,
+          z: a.z + (b.z - a.z) * u,
+          rx: a.rx + (b.rx - a.rx) * u,
+          rz: a.rz + (b.rz - a.rz) * u,
+        };
+      }
+      remain -= seg;
+    }
+    const last = this.trail[this.trail.length - 1];
+    return {
+      x: last.x - last.hx * remain,
+      y: last.y,
+      z: last.z - last.hz * remain,
+      rx: last.rx,
+      rz: last.rz,
+    };
+  }
+
   private fillRibbon(
     boat: Boat,
     time: number,
@@ -166,27 +226,32 @@ class HullWake {
     boosting: boolean,
   ): void {
     const pos = this.ribbon.geometry.getAttribute("position") as THREE.BufferAttribute;
-    const hw0 = boat.def.hullWidth * 0.36;
-    const hw1 = boat.def.hullWidth * 0.52 + len * 0.1 + (boosting ? 0.5 : 0);
+    const hw0 = boat.def.hullWidth * 0.34;
+    const hw1 = boat.def.hullWidth * 0.62 + len * 0.12 + (boosting ? 0.6 : 0);
     const aft0 = boat.def.hullLength * 0.4;
     let n = 0;
     for (let i = 0; i < this.alongRows; i++) {
       const t = i / (this.alongRows - 1);
-      const half = hw0 + (hw1 - hw0) * t ** 0.68;
+      const flare = hw0 + (hw1 - hw0) * Math.pow(t, 0.55);
+      const half = flare * (1 - t * t * 0.88);
+      const aft = aft0 + t * len;
+      const c = this.sampleTrail(aft, boat, fwdX, fwdZ, rightX, rightZ);
+      const rl = Math.hypot(c.rx, c.rz) || 1;
+      const rx = c.rx / rl;
+      const rz = c.rz / rl;
       for (let j = 0; j < this.across; j++) {
         const u = j / (this.across - 1);
         const edge = Math.abs(u - 0.5) * 2;
         const lat = (u - 0.5) * 2 * half;
-        const aft = aft0 + t * len + edge * t * 0.85;
-        const px = boat.x - fwdX * aft + rightX * lat;
-        const pz = boat.z - fwdZ * aft + rightZ * lat;
+        const px = c.x + rx * lat;
+        const pz = c.z + rz * lat;
         const py =
-          boat.y -
+          c.y -
           WATERLINE +
           (gerstnerHeight(px, pz, time) - wave0) +
           0.05 +
-          edge * edge * 0.06 -
-          (1 - edge) * 0.035;
+          edge * edge * 0.05 -
+          (1 - edge) * 0.03;
         pos.setXYZ(n, px, py, pz);
         n += 1;
       }
