@@ -524,6 +524,72 @@ button.ghost {
   background: linear-gradient(90deg, #ffb020, var(--super));
 }
 
+.meter-fill > i {
+  transition: width 0.18s cubic-bezier(0.2, 1.3, 0.4, 1);
+}
+
+.meter.gain {
+  animation: meter-gain 0.5s cubic-bezier(0.2, 1.4, 0.3, 1);
+}
+
+.meter.gain .meter-fill > i {
+  animation: fill-flash 0.5s ease-out;
+}
+
+@keyframes meter-gain {
+  0% { transform: scale(1.08); border-color: #fff; box-shadow: 0 0 22px rgba(46, 230, 255, 0.9); }
+  100% { transform: scale(1); }
+}
+
+@keyframes fill-flash {
+  0% { filter: brightness(2.4); }
+  100% { filter: brightness(1); }
+}
+
+.hud.boosting .meter.boost .meter-fill > i,
+.hud.super-on .meter.super .meter-fill > i {
+  background-image:
+    linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.55) 45%, transparent 60%),
+    linear-gradient(90deg, #1477ff, var(--cyan));
+  background-size: 60px 100%, 100% 100%;
+  animation: fill-burn 0.35s linear infinite;
+}
+
+.hud.super-on .meter.super .meter-fill > i {
+  background-image:
+    linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.6) 45%, transparent 60%),
+    linear-gradient(90deg, #ffb020, var(--super));
+}
+
+@keyframes fill-burn {
+  from { background-position: 60px 0, 0 0; }
+  to { background-position: 0 0, 0 0; }
+}
+
+.hud.dry .meter.boost {
+  border-color: #ff5a3a;
+  animation: meter-dry 0.12s steps(2) 5;
+}
+
+.hud.dry .meter.boost .label {
+  color: #ff7a52;
+}
+
+@keyframes meter-dry {
+  0% { transform: translateX(-3px); box-shadow: 0 0 18px rgba(255, 90, 58, 0.8); }
+  100% { transform: translateX(3px); box-shadow: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meter.gain,
+  .meter.gain .meter-fill > i,
+  .hud.dry .meter.boost,
+  .hud.boosting .meter.boost .meter-fill > i,
+  .hud.super-on .meter.super .meter-fill > i {
+    animation: none;
+  }
+}
+
 .countdown {
   position: absolute;
   inset: 0;

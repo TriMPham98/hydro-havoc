@@ -1,4 +1,4 @@
-import { BLUE_BOOST, BOOST_CAP, JET_BAY_DELAY, JET_IGNITE, RED_BOOST, SUPER_DURATION } from "./constants";
+import { BLUE_BOOST, BOOST_CAP, JET_BAY_DELAY, JET_IGNITE, JET_SPUTTER, RED_BOOST, SUPER_DURATION } from "./constants";
 import type { Boat } from "./Boat";
 
 export type PickupKind = "blue" | "red" | "super";
@@ -77,25 +77,29 @@ export function activateSuper(boat: Boat): void {
   if (boat.jetBay <= 0) flushPending(boat);
 }
 
-export function spendBoost(boat: Boat, dt: number): { usingSuper: boolean; usingBoost: boolean } {
-  const using = boat.boostHeld && !boat.finished && boat.jetBay <= 0;
-  if (!using) return { usingSuper: false, usingBoost: false };
+export type BoostSpend = { usingSuper: boolean; usingBoost: boolean; ranDry: boolean };
 
+export function spendBoost(boat: Boat, dt: number): BoostSpend {
+  const using = boat.boostHeld && !boat.finished && boat.jetBay <= 0;
+  if (!using) return { usingSuper: false, usingBoost: false, ranDry: false };
+
+  let usingSuper = false;
   if (boat.superBoostRemaining > 0) {
+    usingSuper = true;
     boat.superBoostRemaining = Math.max(0, boat.superBoostRemaining - dt);
     if (boat.superBoostRemaining === 0) {
       boat.boostFuel = Math.min(BOOST_CAP, boat.boostFuel + boat.storedBoost);
       boat.storedBoost = 0;
     }
-    return { usingSuper: true, usingBoost: true };
-  }
-
-  if (boat.boostFuel > 0) {
+  } else if (boat.boostFuel > 0) {
     boat.boostFuel = Math.max(0, boat.boostFuel - dt);
-    return { usingSuper: false, usingBoost: true };
+  } else {
+    return { usingSuper: false, usingBoost: false, ranDry: false };
   }
 
-  return { usingSuper: false, usingBoost: false };
+  const ranDry = boat.boostFuel === 0 && boat.superBoostRemaining === 0 && boat.pendingBoost === 0 && boat.pendingSuper === 0;
+  if (ranDry) boat.jetSputter = JET_SPUTTER;
+  return { usingSuper, usingBoost: true, ranDry };
 }
 
 export function restoreStoredIfIdle(boat: Boat): void {

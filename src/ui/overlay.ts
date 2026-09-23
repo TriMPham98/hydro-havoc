@@ -27,6 +27,8 @@ export class Overlay {
   private sector!: HTMLElement;
   private boostFill!: HTMLElement;
   private superFill!: HTMLElement;
+  private lastBoost = 0;
+  private lastSuper = 0;
   private onStart?: () => void;
   private onSelect?: (id: BoatId) => void;
   private onRace?: () => void;
@@ -186,18 +188,21 @@ export class Overlay {
   }
 
   updateHud(player: Boat, dir: RaceDirector, label: string | null, field: Boat[] = []): void {
-    if (this.pos.textContent !== String(player.place)) {
-      this.pos.classList.remove("sting");
-      void this.pos.offsetWidth;
-      this.pos.classList.add("sting");
-    }
+    if (this.pos.textContent !== String(player.place)) restartAnim(this.pos, "sting");
     this.pos.textContent = String(player.place);
     this.lap.textContent = `${Math.min(player.lap + 1, LAP_COUNT)}/${LAP_COUNT}`;
     this.clock.textContent = formatTime(dir.time);
     this.speed.textContent = String(Math.round(player.speed * 2.4)).padStart(2, "0");
     this.sector.textContent = sectorName(player.courseT, this.course);
-    this.boostFill.style.width = `${((player.boostFuel + player.pendingBoost) / BOOST_CAP) * 100}%`;
-    this.superFill.style.width = `${((player.superBoostRemaining + player.pendingSuper) / SUPER_DURATION) * 100}%`;
+    const boost = player.boostFuel + player.pendingBoost;
+    const sup = player.superBoostRemaining + player.pendingSuper;
+    if (boost > this.lastBoost + 0.05) restartAnim(this.boostFill.closest(".meter"), "gain");
+    if (sup > this.lastSuper + 0.05) restartAnim(this.superFill.closest(".meter"), "gain");
+    this.lastBoost = boost;
+    this.lastSuper = sup;
+    this.boostFill.style.width = `${(boost / BOOST_CAP) * 100}%`;
+    this.superFill.style.width = `${(sup / SUPER_DURATION) * 100}%`;
+    this.hud.classList.toggle("dry", player.jetSputter > 0);
     const hot = player.boostHeld && player.jetBay <= 0 && (player.boostFuel > 0 || player.superBoostRemaining > 0);
     this.hud.classList.toggle("boosting", hot);
     this.hud.classList.toggle("bay-lock", player.jetBay > 0);
@@ -278,6 +283,13 @@ export class Overlay {
     if (!(node instanceof HTMLElement)) throw new Error(sel);
     return node;
   }
+}
+
+function restartAnim(el: Element | null, cls: string): void {
+  if (!(el instanceof HTMLElement)) return;
+  el.classList.remove(cls);
+  void el.offsetWidth;
+  el.classList.add(cls);
 }
 
 function sectorName(t: number, _course: CourseId): string {

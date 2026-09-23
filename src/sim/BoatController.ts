@@ -25,6 +25,7 @@ export interface ControllerResult {
   jumped: boolean;
   usingBoost: boolean;
   usingSuper: boolean;
+  ranDry: boolean;
 }
 
 function steerCurve(speed: number, maxSpeed: number): number {
@@ -43,6 +44,7 @@ export function stepBoat(
 ): ControllerResult {
   boat.time += dt;
   if (boat.jetIgnite > 0) boat.jetIgnite = Math.max(0, boat.jetIgnite - dt);
+  if (boat.jetSputter > 0) boat.jetSputter = Math.max(0, boat.jetSputter - dt);
   tickBay(boat, dt);
   const result: ControllerResult = {
     bankHit: false,
@@ -51,6 +53,7 @@ export function stepBoat(
     jumped: false,
     usingBoost: false,
     usingSuper: false,
+    ranDry: false,
   };
 
   if (locked || boat.finished) {
@@ -70,9 +73,10 @@ export function stepBoat(
   boat.prevBrake = boat.brake > 0.5;
   boat.prevBoost = boat.boostHeld;
 
-  const spend = locked ? { usingBoost: false, usingSuper: false } : spendBoost(boat, dt);
+  const spend = locked ? { usingBoost: false, usingSuper: false, ranDry: false } : spendBoost(boat, dt);
   result.usingBoost = spend.usingBoost;
   result.usingSuper = spend.usingSuper;
+  result.ranDry = spend.ranDry;
 
   const def = boat.def;
   let maxSpeed = def.maxSpeed;

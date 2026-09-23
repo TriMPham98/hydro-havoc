@@ -54,4 +54,18 @@ describe("player spray sheets", () => {
     const trail = fx.group.getObjectByName("fxParticles")?.children.find((c) => c.type === "Points");
     expect(trail).toBeTruthy();
   });
+
+  it("streams pickup energy into the hull and rings it in the pickup color", () => {
+    const fx = new Fx(new THREE.HemisphereLight());
+    const track = buildRiptideRefinery();
+    const player = createBoat("p", "skimmer", false);
+    fx.absorb(player, 12, 0, 0, "red");
+    const ring = named(fx.group, "slamRing0");
+    for (let i = 0; i < 20; i++) fx.update(track, [player], 1 / 60, i / 60, false);
+    expect(ring.visible).toBe(false);
+    for (let i = 0; i < 12; i++) fx.update(track, [player], 1 / 60, 1, false);
+    expect(ring.visible).toBe(true);
+    const col = (ring.material as THREE.ShaderMaterial).uniforms.uColor.value as THREE.Color;
+    expect(col.getHex()).toBe(0xff3d6e);
+  });
 });

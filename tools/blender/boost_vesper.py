@@ -6,7 +6,6 @@ def add_boost_mech(cfg, mats, parent, api):
     add_cube = api["add_cube"]
     add_cylinder = api["add_cylinder"]
     shade_smooth = api["shade_smooth"]
-    dtb = api["design_to_blender"]
     math = api["math"]
 
     cabin = mats["cabin"]
@@ -51,14 +50,6 @@ def add_boost_mech(cfg, mats, parent, api):
             segs=10,
         )
         shade_smooth(collar, 36)
-        bay = add_cube(
-            f"VespBoostBay{suf}",
-            (r * 2.35, 0.055, r * 2.15),
-            dtb(sled.location.x, cfg.after_f0, 0.30),
-            parent=parent,
-            mat=cabin,
-        )
-        shade_smooth(bay, 50)
 
     prop = next((c for c in parent.children if c.name == "propeller"), None)
     if prop is None:

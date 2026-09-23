@@ -6,13 +6,11 @@ def add_boost_mech(cfg, mats, parent, api):
     add_cube = api["add_cube"]
     add_cylinder = api["add_cylinder"]
     shade_smooth = api["shade_smooth"]
-    d2b = api["design_to_blender"]
     math = api["math"]
 
     chrome = mats["chrome"]
     gunmetal = mats["gunmetal"]
     heat = mats["heat"]
-    cabin = mats["cabin"]
     rx = math.radians(90.0)
 
     sleds = [c for c in parent.children if c.name.startswith("JetSled") and "Out" not in c.name]
@@ -61,33 +59,6 @@ def add_boost_mech(cfg, mats, parent, api):
             mat=heat,
         )
         shade_smooth(wg, 50)
-
-    after_f0 = cfg.after_f0
-    trunnion = add_cube(
-        "IronBoostTrunnion",
-        (jet_r * 2.4, 0.070, 0.080),
-        d2b(0.0, after_f0, 0.50),
-        parent=parent,
-        mat=gunmetal,
-    )
-    shade_smooth(trunnion, 50)
-    for tag, sx in (("L", -1.0), ("R", 1.0)):
-        ear = add_cube(
-            f"IronBoostEar_{tag}",
-            (0.046, 0.10, 0.070),
-            d2b(sx * (jet_r * 1.20), after_f0 + 0.02, 0.50),
-            parent=parent,
-            mat=gunmetal,
-        )
-        shade_smooth(ear, 55)
-        gate = add_cube(
-            f"IronBoostGate_{tag}",
-            (0.09, 0.018, 0.11),
-            d2b(sx * (jet_r * 1.22), after_f0 - 0.006, 0.50),
-            parent=parent,
-            mat=cabin,
-        )
-        shade_smooth(gate, 45)
 
     prop = next((c for c in parent.children if c.name == "propeller"), None)
     if prop is None:

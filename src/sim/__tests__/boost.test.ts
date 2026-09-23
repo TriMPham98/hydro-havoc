@@ -7,7 +7,7 @@ import {
   collectPickup,
   spendBoost,
 } from "../BoostSystem";
-import { BOOST_CAP, JET_BAY_DELAY, JET_IGNITE, SUPER_DURATION } from "../constants";
+import { BOOST_CAP, JET_BAY_DELAY, JET_IGNITE, JET_SPUTTER, SUPER_DURATION } from "../constants";
 import { buildRiptideRefinery } from "../../data/tracks/riptideRefinery";
 import { stepPickups } from "../Pickups";
 
@@ -112,6 +112,26 @@ describe("boost system", () => {
     collectPickup(a, "blue");
     collectPickup(b, "super");
     expect(b.jetIgnite).toBeGreaterThan(a.jetIgnite);
+  });
+
+  it("sputters exactly once when the tank runs dry under the throttle", () => {
+    const boat = createBoat("p", "skimmer", false);
+    boat.boostFuel = 0.03;
+    boat.boostHeld = true;
+    expect(spendBoost(boat, 1 / 60).ranDry).toBe(false);
+    expect(boat.jetSputter).toBe(0);
+    expect(spendBoost(boat, 1 / 60).ranDry).toBe(true);
+    expect(boat.jetSputter).toBe(JET_SPUTTER);
+    expect(spendBoost(boat, 1 / 60)).toEqual({ usingSuper: false, usingBoost: false, ranDry: false });
+  });
+
+  it("does not sputter when super hands back stored fuel", () => {
+    const boat = createBoat("p", "skimmer", false);
+    boat.boostFuel = 2;
+    activateSuper(boat);
+    boat.boostHeld = true;
+    expect(spendBoost(boat, SUPER_DURATION).ranDry).toBe(false);
+    expect(boat.jetSputter).toBe(0);
   });
 
   it("kicks speed the frame boost is mashed", () => {

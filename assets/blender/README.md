@@ -10,10 +10,8 @@ Parametric pickle-fork hydroplanes built in Blender 5.1 for Skimmer, Ironwake, a
 | `hydro_fleet.blend` | All three hulls side by side. |
 | `previews/` | Studio stills (3/4, side, front, rear, top). |
 | `../../public/boats/*.glb` | Game-ready GLB (Y-up, **+Z bow**, +X starboard). |
-| `../../tools/blender/build_boats.py` | Generator (hulls + Hydro Thunder jets). |
-| `../../tools/blender/detail_skimmer.py` | Skimmer greebles. |
-| `../../tools/blender/detail_ironwake.py` | Ironwake greebles. |
-| `../../tools/blender/detail_vesper.py` | Vesper greebles. |
+| `../../tools/blender/build_boats.py` | Generator (hulls + boost pods + Hydro Thunder jets). |
+| `../../tools/blender/boost_<id>.py` | Per-hull rack hardware that rides each `JetSled`. |
 
 ## Regenerate
 

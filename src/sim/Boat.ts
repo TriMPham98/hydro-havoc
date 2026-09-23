@@ -29,6 +29,8 @@ export interface Boat {
   jetIgnite: number;
   /** Seconds until the missile bay finishes; boost is not armed while this is > 0. */
   jetBay: number;
+  /** Seconds left on the empty-tank sputter (boost ran dry while held). */
+  jetSputter: number;
   pendingBoost: number;
   pendingSuper: number;
   lastCheckpoint: number;
@@ -76,6 +78,7 @@ export function createBoat(id: string, defId: BoatId, ai: boolean): Boat {
     storedBoost: 0,
     jetIgnite: 0,
     jetBay: 0,
+    jetSputter: 0,
     pendingBoost: 0,
     pendingSuper: 0,
     lastCheckpoint: 0,

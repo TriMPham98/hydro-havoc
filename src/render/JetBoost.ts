@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { BoatDef } from "../data/boats";
-import { JET_BAY_DELAY, JET_IGNITE } from "../sim/constants";
+import { JET_BAY_DELAY, JET_IGNITE, JET_SPUTTER } from "../sim/constants";
 
 export type JetState = {
   boosting: boolean;
@@ -8,6 +8,8 @@ export type JetState = {
   ignite: number;
   hasFuel: boolean;
   bay: number;
+  /** Seconds left on the empty-tank sputter. */
+  sputter: number;
   speed: number;
   dt: number;
   time: number;
@@ -45,6 +47,11 @@ export type JetRig = {
   spin: number;
   spinRate: number;
   prevIgnite: number;
+  prevBoosting: boolean;
+  /** 1 on the boost-press frame, decays: plume overshoot + flash slam. */
+  kick: number;
+  /** Render-only bow lift (radians, + = nose up) the hull takes under thrust. */
+  lift: number;
 };
 
 const jetRigs = new WeakMap<THREE.Object3D, JetRig>();
@@ -53,6 +60,8 @@ const CYAN = new THREE.Color(0x7af0ff);
 const WHITE = new THREE.Color(0xf5fdff);
 const GOLD = new THREE.Color(0xffe14a);
 const GOLD_WHITE = new THREE.Color(0xfff4c8);
+const EMBER = new THREE.Color(0xff6a2a);
+const EMBER_CORE = new THREE.Color(0xffc49a);
 const OPEN = new THREE.Quaternion();
 const AXIS_Z = new THREE.Vector3(0, 0, 1);
 const AXIS_X = new THREE.Vector3(1, 0, 0);
@@ -81,6 +90,7 @@ function jetConeMaterial(core: number): THREE.ShaderMaterial {
       uOpacity: { value: 0 },
       uTime: { value: 0 },
       uCore: { value: core },
+      uDiamond: { value: 0 },
     },
     vertexShader: `
       varying vec2 vUv;
@@ -94,6 +104,7 @@ function jetConeMaterial(core: number): THREE.ShaderMaterial {
       uniform float uOpacity;
       uniform float uTime;
       uniform float uCore;
+      uniform float uDiamond;
       varying vec2 vUv;
       void main() {
         float along = vUv.y;
@@ -101,9 +112,11 @@ function jetConeMaterial(core: number): THREE.ShaderMaterial {
         float radial = 1.0 - across;
         float body = pow(max(radial, 0.0), mix(1.05, 2.6, along)) * pow(1.0 - along, 0.42);
         float flicker = 0.78 + 0.22 * sin(uTime * 47.0 + along * 18.0) * sin(uTime * 31.0);
-        float a = body * uOpacity * flicker;
+        // Shock diamonds: bright bands that march down the core under full thrust.
+        float diamond = pow(0.5 + 0.5 * cos(along * 30.0 - uTime * 9.0), 8.0) * uDiamond * (1.0 - along) * radial;
+        float a = body * uOpacity * flicker + diamond * 0.9;
         if (a < 0.018) discard;
-        vec3 col = mix(uColor, vec3(1.0), uCore * (1.0 - along) * radial);
+        vec3 col = mix(mix(uColor, vec3(1.0), uCore * (1.0 - along) * radial), vec3(1.0), min(1.0, diamond));
         gl_FragColor = vec4(col, a);
       }
     `,
@@ -299,6 +312,9 @@ export function bindJet(root: THREE.Group, def: BoatDef): JetRig {
     spin: 0,
     spinRate: 2,
     prevIgnite: 0,
+    prevBoosting: false,
+    kick: 0,
+    lift: 0,
   };
   jetRigs.set(root, rig);
   return rig;
@@ -318,6 +334,10 @@ export function updateJet(root: THREE.Object3D, state: JetState): void {
 
   const pickupSlam = state.ignite > rig.prevIgnite + 0.02 || state.bay > rig.prevIgnite + 0.02;
   rig.prevIgnite = Math.max(state.ignite, state.bay);
+  if (state.boosting && !rig.prevBoosting) rig.kick = 1;
+  rig.prevBoosting = state.boosting;
+  rig.kick = Math.max(0, rig.kick - state.dt * 3.2);
+  const sputterK = state.sputter > 0 ? state.sputter / JET_SPUTTER : 0;
 
   let targetPetal = 0;
   let targetPower = 0;
@@ -334,6 +354,13 @@ export function updateJet(root: THREE.Object3D, state: JetState): void {
     targetPower = flash;
     targetDeploy = 1;
     spinTarget = 16 + flash * 12;
+  } else if (sputterK > 0) {
+    // Tank's dry: the jet coughs, each cough weaker, the compressor winds down.
+    const cough = Math.sin(state.time * 53) * Math.sin(state.time * 21) > 0.15 ? 1 : 0;
+    targetPetal = 0.2 + 0.55 * sputterK;
+    targetPower = cough * (0.2 + 0.6 * sputterK);
+    targetDeploy = 1;
+    spinTarget = 4 + 20 * sputterK;
   } else if (state.hasFuel) {
     targetPetal = 0.32;
     targetPower = 0.18;
@@ -350,7 +377,9 @@ export function updateJet(root: THREE.Object3D, state: JetState): void {
   const kPower = 1 - Math.exp(-18 * state.dt);
   const kPetal = 1 - Math.exp(-(state.boosting || state.ignite > 0 || state.bay > 0 ? 18 : 10) * state.dt);
   rig.petal += (targetPetal - rig.petal) * kPetal;
-  rig.power += (targetPower - rig.power) * kPower;
+  rig.power += (targetPower - rig.power) * (sputterK > 0 ? 1 - Math.exp(-40 * state.dt) : kPower);
+  const targetLift = state.boosting ? (state.superOn ? 0.07 : 0.045) + rig.kick * 0.035 : sputterK > 0 ? -0.018 : 0;
+  rig.lift += (targetLift - rig.lift) * (1 - Math.exp(-6 * state.dt));
   if (state.bay > 0) {
     rig.deploy = 1 - state.bay / JET_BAY_DELAY;
   } else if (targetDeploy >= 1) {
@@ -387,9 +416,12 @@ export function updateJet(root: THREE.Object3D, state: JetState): void {
 
   const hot = rig.power > 0.04 && fireGate > 0.04;
   const superCol = state.superOn && (state.boosting || state.ignite > 0.15);
-  const plumeCol = superCol ? GOLD : CYAN;
-  const coreCol = superCol ? GOLD_WHITE : WHITE;
+  const dying = sputterK > 0 && !state.boosting;
+  const plumeCol = superCol ? GOLD : dying ? EMBER : CYAN;
+  const coreCol = superCol ? GOLD_WHITE : dying ? EMBER_CORE : WHITE;
   const coreEmissive = 1.2 + rig.power * 6.5;
+  const power = rig.power * (1 + rig.kick * 0.45);
+  const throb = state.boosting ? 1 + 0.07 * Math.sin(state.time * 41) : 1;
 
   for (const core of rig.cores) {
     const mat = core.material as THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial;
@@ -406,7 +438,7 @@ export function updateJet(root: THREE.Object3D, state: JetState): void {
   for (const glow of rig.glows) {
     const gm = glow.material as THREE.MeshBasicMaterial;
     gm.opacity = hot ? (superCol ? 0.42 : 0.28) * Math.min(1, rig.power) : 0;
-    gm.color.copy(superCol ? GOLD : CYAN);
+    gm.color.copy(plumeCol);
     const s = hot ? 0.45 + rig.power * 0.85 : 0.18;
     glow.scale.set(s * 0.7, s * 1.15, s * 0.7);
   }
@@ -422,16 +454,16 @@ export function updateJet(root: THREE.Object3D, state: JetState): void {
     washMat.uniforms.uColor.value.copy(plumeCol);
     flashMat.uniforms.uColor.value.copy(coreCol);
     coreMat.uniforms.uOpacity.value = rig.power * 0.95;
+    coreMat.uniforms.uDiamond.value = state.boosting ? rig.power : 0;
     washMat.uniforms.uOpacity.value = rig.power * 0.72;
-    flashMat.uniforms.uOpacity.value = rig.power * 0.8;
-    const len = 0.35 + rig.power * 1.15;
-    const fat = 0.4 + rig.power * 0.95;
+    flashMat.uniforms.uOpacity.value = Math.min(1.2, rig.power * 0.8 + rig.kick * 0.6);
+    const len = (0.35 + power * 1.15) * throb;
+    const fat = 0.4 + power * 0.95;
     plume.core.scale.set(fat * 0.72, len * 1.15, fat * 0.72);
     plume.wash.scale.set(fat * 1.25, len * 0.85, fat * 1.25);
-    const flashS = 0.45 + rig.power * 1.4;
-    plume.flash.scale.setScalar(flashS);
+    plume.flash.scale.setScalar(0.45 + power * 1.4 + rig.kick * 1.2);
     plume.light.color.copy(plumeCol);
-    plume.light.intensity = rig.power * (superCol ? 4.2 : 2.8);
+    plume.light.intensity = power * (superCol ? 4.2 : 2.8);
   }
 }
 

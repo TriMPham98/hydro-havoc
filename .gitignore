@@ -5,3 +5,4 @@ dist
 .vercel
 .verify-*.png
 *.blend1
+__pycache__/

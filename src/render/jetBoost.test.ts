@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { boatById } from "../data/boats";
-import { JET_IGNITE } from "../sim/constants";
+import { JET_IGNITE, JET_SPUTTER } from "../sim/constants";
 import { addProceduralJet, bindJet, getJetRig, updateJet } from "./JetBoost";
 
 function step(root: THREE.Group, over: Partial<Parameters<typeof updateJet>[1]> = {}): void {
@@ -11,6 +11,7 @@ function step(root: THREE.Group, over: Partial<Parameters<typeof updateJet>[1]> 
     ignite: 0,
     hasFuel: false,
     bay: 0,
+    sputter: 0,
     speed: 12,
     dt: 1 / 60,
     time: 1,
@@ -119,6 +120,41 @@ describe("jet boost rig", () => {
     expect(plume.visible).toBe(true);
     const wash = root.getObjectByName("jetWashPlume_0") as THREE.Mesh;
     expect((wash.material as THREE.ShaderMaterial).uniforms.uOpacity.value).toBeGreaterThan(0.4);
+  });
+
+  it("kicks the plume, lifts the bow, and marches shock diamonds on boost", () => {
+    const { root } = rigRoot();
+    const rig = getJetRig(root)!;
+    for (let i = 0; i < 20; i++) step(root, { hasFuel: true, time: i / 60 });
+    step(root, { boosting: true, hasFuel: true, time: 0.4 });
+    expect(rig.kick).toBeGreaterThan(0.9);
+    for (let i = 0; i < 30; i++) step(root, { boosting: true, hasFuel: true, time: 0.4 + i / 60 });
+    expect(rig.lift).toBeGreaterThan(0.03);
+    const core = root.getObjectByName("jetCorePlume_0") as THREE.Mesh;
+    expect((core.material as THREE.ShaderMaterial).uniforms.uDiamond.value).toBeGreaterThan(0.6);
+  });
+
+  it("coughs embers when the tank runs dry, then dies and retracts", () => {
+    const { root } = rigRoot();
+    const rig = getJetRig(root)!;
+    for (let i = 0; i < 30; i++) step(root, { boosting: true, hasFuel: true, time: i / 60 });
+    const plume = root.getObjectByName("jetPlume_0") as THREE.Group;
+    const wash = root.getObjectByName("jetWashPlume_0") as THREE.Mesh;
+    let lit = 0;
+    let dark = 0;
+    for (let i = 0; i < JET_SPUTTER * 60; i++) {
+      step(root, { sputter: JET_SPUTTER - i / 60, time: 1 + i / 60 });
+      if (plume.visible) lit++;
+      else dark++;
+    }
+    expect(lit).toBeGreaterThan(3);
+    expect(dark).toBeGreaterThan(3);
+    const col = (wash.material as THREE.ShaderMaterial).uniforms.uColor.value as THREE.Color;
+    expect(col.r).toBeGreaterThan(col.b);
+    for (let i = 0; i < 90; i++) step(root, { time: 2 + i / 60 });
+    expect(plume.visible).toBe(false);
+    expect(rig.deploy).toBeLessThan(0.05);
+    expect(Math.abs(rig.lift)).toBeLessThan(0.005);
   });
 
   it("goes full afterburner while boosting and gold on super", () => {

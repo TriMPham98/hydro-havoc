@@ -431,6 +431,12 @@ export class GameAudio {
     this.noiseBurst(0.08, 0.045, 1400, 400);
   }
 
+  /** Dry tank: a few coughing pops falling in pitch, then a hiss. */
+  sputter(): void {
+    for (let i = 0; i < 4; i++) this.tone(92 - i * 14, 0.05, "square", 0.05 - i * 0.008, i * 0.12);
+    this.noiseBurst(0.22, 0.05, 900, 200);
+  }
+
   mine(): void {
     this.noiseBurst(0.28, 0.12, 140);
     this.tone(48, 0.22, "sine", 0.08);

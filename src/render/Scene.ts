@@ -9,11 +9,11 @@ import { queryCourse, type TrackWorld } from "../sim/Track";
 import { gerstnerHeight } from "../sim/waterHeight";
 import { BOATS } from "../data/boats";
 import { applyHullHeat, createBoatMesh, getBoatTemplate, preloadBoatMeshes } from "./BoatMesh";
-import { updateJet } from "./JetBoost";
+import { getJetRig, updateJet } from "./JetBoost";
 import { boostLive } from "../sim/BoostSystem";
 import { CameraRig, type CameraMode } from "./CameraRig";
 import { ContactField } from "./Contact";
-import { Fx } from "./Fx";
+import { Fx, type BoostKind } from "./Fx";
 import { createSkyDome } from "./SkyDome";
 import { createOceanMaterial } from "./WaterMaterial";
 import { createTrackGroup } from "./TrackMesh";
@@ -275,6 +275,15 @@ export class GameRenderer {
     this.hitPunch(boat.superBoostRemaining > 0 ? 0.5 : 0.3);
   }
 
+  absorbPickup(boat: Boat, x: number, y: number, z: number, kind: BoostKind): void {
+    this.fx.absorb(boat, x, y, z, kind);
+  }
+
+  backfire(boat: Boat): void {
+    this.fx.backfire(boat);
+    this.hitPunch(0.18);
+  }
+
   bankSpray(x: number, y: number, z: number): void {
     this.fx.bankSpray(x, y, z);
   }
@@ -330,7 +339,6 @@ export class GameRenderer {
         this.scene.add(mesh);
       }
       mesh.position.set(boat.x, boat.y, boat.z);
-      mesh.rotation.set(boat.pitch, boat.yaw, boat.roll);
       const hot = boat.boostHeld && boostLive(boat);
       const hasFuel = boat.boostFuel > 0 || boat.superBoostRemaining > 0;
       const superOn = boat.superBoostRemaining > 0 && (hot || boat.jetIgnite > 0.02);
@@ -340,10 +348,12 @@ export class GameRenderer {
         ignite: boat.jetIgnite,
         hasFuel,
         bay: boat.jetBay,
+        sputter: boat.jetSputter,
         speed: boat.speed,
         dt,
         time,
       });
+      mesh.rotation.set(boat.pitch - (getJetRig(mesh)?.lift ?? 0), boat.yaw, boat.roll);
       const heat = superOn ? 1 : hot ? 0.6 : boat.jetIgnite > 0 ? Math.min(1, 0.35 + boat.jetIgnite) : 0;
       applyHullHeat(mesh, heat);
     }

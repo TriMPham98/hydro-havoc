@@ -7,9 +7,12 @@ const SPRAY_COUNT = 400;
 const MIST_COUNT = 64;
 const TRAIL_COUNT = 120;
 const SPARK_COUNT = 360;
+const ABSORB_COUNT = 48;
+const ABSORB_TIME = 0.46;
+const SMOKE_COUNT = 64;
 /** Player-only: transom, two chines, two upright fans. AI stays on discs. */
 const PLAYER_SHEETS = 5;
-const SLAM_RINGS = 2;
+const SLAM_RINGS = 3;
 const INV_2_32 = 2.3283064365386963e-10;
 
 function hash01(i: number, salt: number): number {
@@ -155,9 +158,12 @@ function addSpike(parent: THREE.Group, x: number, y: number, z: number, mat: THR
   parent.add(spike);
 }
 
-function beaconBuoy(kind: "blue" | "red" | "super"): THREE.Group {
+export const PICKUP_COLOR = { blue: 0x2ee6ff, red: 0xff3d6e, super: 0xffe14a } as const;
+export type BoostKind = keyof typeof PICKUP_COLOR;
+
+function beaconBuoy(kind: BoostKind): THREE.Group {
   const g = new THREE.Group();
-  const accent = kind === "super" ? 0xffe14a : kind === "red" ? 0xff3d6e : 0x2ee6ff;
+  const accent = PICKUP_COLOR[kind];
   const hull = new THREE.Mesh(new THREE.SphereGeometry(0.52, 12, 8), metal(0x3a454c, 0.74, 0.26));
   hull.scale.set(1, 0.7, 1);
   g.add(hull);
@@ -294,7 +300,17 @@ export class Fx {
   private sparksVel: Float32Array;
   private sparksLife: Float32Array;
   private sheets: THREE.Mesh[] = [];
-  private slamRings: { mesh: THREE.Mesh; life: number }[] = [];
+  private slamRings: { mesh: THREE.Mesh; life: number; max: number; grow: number; opacity: number }[] = [];
+  private absorbPts: THREE.Points;
+  private absorbMat: THREE.ShaderMaterial;
+  private absorbFrom = new Float32Array(ABSORB_COUNT * 3);
+  private absorbBoat: Boat | null = null;
+  private absorbT = 0;
+  private absorbRang = false;
+  private smokePts: THREE.Points;
+  private smokeMat: THREE.ShaderMaterial;
+  private smokeVel: Float32Array;
+  private smokeLife: Float32Array;
   private pickups = new THREE.Group();
   private crates = new THREE.Group();
   private mines = new THREE.Group();
@@ -318,8 +334,16 @@ export class Fx {
     this.sparksPts = sparks.pts;
     this.sparksVel = sparks.vel;
     this.sparksLife = new Float32Array(SPARK_COUNT);
+    this.absorbMat = discMaterial(PICKUP_COLOR.blue, 34, 0, true);
+    this.absorbPts = makeCloud(ABSORB_COUNT, this.absorbMat).pts;
+    this.absorbPts.frustumCulled = false;
+    this.smokeMat = discMaterial(0x33373c, 96, 0, false);
+    const smoke = makeCloud(SMOKE_COUNT, this.smokeMat);
+    this.smokePts = smoke.pts;
+    this.smokeVel = smoke.vel;
+    this.smokeLife = new Float32Array(SMOKE_COUNT);
     this.particles.name = "fxParticles";
-    this.particles.add(this.spray, this.mist, this.trail, this.sparksPts);
+    this.particles.add(this.spray, this.mist, this.trail, this.sparksPts, this.absorbPts, this.smokePts);
     const sheetGeo = taperSheetGeometry();
     sheetGeo.rotateX(-Math.PI / 2);
     const names = ["sprayTransom", "sprayChineL", "sprayChineR", "sprayFanL", "sprayFanR"];
@@ -339,7 +363,7 @@ export class Fx {
       mesh.name = `slamRing${i}`;
       mesh.visible = false;
       mesh.frustumCulled = false;
-      this.slamRings.push({ mesh, life: 0 });
+      this.slamRings.push({ mesh, life: 0, max: 0.42, grow: 7.5, opacity: 0.55 });
       this.particles.add(mesh);
     }
     this.group.add(this.particles);
@@ -516,12 +540,94 @@ export class Fx {
 
   slam(x: number, y: number, z: number): void {
     this.burst(x, y, z, 72, 22, 18);
+    this.ring(x, y, z, 0xdef4fb, 0.42, 7.5, 0.55);
+  }
+
+  private ring(x: number, y: number, z: number, color: number, life: number, grow: number, opacity: number): void {
     const slot = this.slamRings.find((r) => r.life <= 0) ?? this.slamRings[0];
-    slot.life = 0.42;
+    Object.assign(slot, { life, max: life, grow, opacity });
     slot.mesh.visible = true;
     slot.mesh.position.set(x, y + 0.04, z);
     slot.mesh.scale.setScalar(1.4);
-    (slot.mesh.material as THREE.ShaderMaterial).uniforms.uOpacity.value = 0.55;
+    const mat = slot.mesh.material as THREE.ShaderMaterial;
+    mat.uniforms.uColor.value.setHex(color);
+    mat.uniforms.uOpacity.value = opacity;
+  }
+
+  /** Pickup energy streams from the beacon into the transom bay, then rings the hull. */
+  absorb(boat: Boat, x: number, y: number, z: number, kind: BoostKind): void {
+    this.absorbBoat = boat;
+    this.absorbT = 0;
+    this.absorbRang = false;
+    this.absorbMat.uniforms.uColor.value.setHex(PICKUP_COLOR[kind]);
+    for (let i = 0; i < ABSORB_COUNT; i++) {
+      const a = hash01(i, 11) * Math.PI * 2;
+      const r = 0.4 + hash01(i, 12) * 1.4;
+      this.absorbFrom[i * 3] = x + Math.cos(a) * r;
+      this.absorbFrom[i * 3 + 1] = y + 1.2 + (hash01(i, 13) - 0.3) * 1.6;
+      this.absorbFrom[i * 3 + 2] = z + Math.sin(a) * r;
+    }
+  }
+
+  /** Dry-tank backfire: sparks out of the bay; smoke keeps coughing while the jet sputters. */
+  backfire(boat: Boat): void {
+    const fwd = headingVector(boat.yaw);
+    const aft = boat.def.hullLength * 0.5;
+    this.sparks(boat.x - fwd.x * aft, boat.y + 0.6, boat.z - fwd.z * aft);
+    this.puffSmoke(boat, 14);
+  }
+
+  private puffSmoke(boat: Boat, count: number): void {
+    const fwd = headingVector(boat.yaw);
+    const aft = boat.def.hullLength * 0.5;
+    const pos = this.smokePts.geometry.getAttribute("position") as THREE.BufferAttribute;
+    for (let i = 0; i < count; i++) {
+      const n = Math.floor(Math.random() * pos.count);
+      pos.setXYZ(n, boat.x - fwd.x * aft + (Math.random() - 0.5) * 0.6, boat.y + 0.55, boat.z - fwd.z * aft + (Math.random() - 0.5) * 0.6);
+      this.smokeVel[n * 3] = boat.vx * 0.6 - fwd.x * 3 + (Math.random() - 0.5) * 1.5;
+      this.smokeVel[n * 3 + 1] = 1.2 + Math.random() * 1.8;
+      this.smokeVel[n * 3 + 2] = boat.vz * 0.6 - fwd.z * 3 + (Math.random() - 0.5) * 1.5;
+      this.smokeLife[n] = 0.5 + Math.random() * 0.6;
+    }
+    pos.needsUpdate = true;
+  }
+
+  private stepAbsorb(dt: number): void {
+    const boat = this.absorbBoat;
+    const pos = this.absorbPts.geometry.getAttribute("position") as THREE.BufferAttribute;
+    if (!boat) return;
+    this.absorbT += dt / ABSORB_TIME;
+    const fwd = headingVector(boat.yaw);
+    const aft = boat.def.hullLength * 0.42;
+    const tx = boat.x - fwd.x * aft;
+    const ty = boat.y + 0.6;
+    const tz = boat.z - fwd.z * aft;
+    for (let i = 0; i < ABSORB_COUNT; i++) {
+      const p = Math.min(1, Math.max(0, (this.absorbT - hash01(i, 14) * 0.35) / 0.65));
+      if (p <= 0 || p >= 1) {
+        pos.setXYZ(i, 0, -24, 0);
+        continue;
+      }
+      const e = p * p * p;
+      const swirl = Math.sin(p * Math.PI) * 1.1;
+      const a = hash01(i, 15) * Math.PI * 2 + p * 7;
+      pos.setXYZ(
+        i,
+        this.absorbFrom[i * 3] + (tx - this.absorbFrom[i * 3]) * e + Math.cos(a) * swirl,
+        this.absorbFrom[i * 3 + 1] + (ty - this.absorbFrom[i * 3 + 1]) * e + Math.sin(a) * swirl * 0.5,
+        this.absorbFrom[i * 3 + 2] + (tz - this.absorbFrom[i * 3 + 2]) * e + Math.sin(a) * swirl,
+      );
+    }
+    pos.needsUpdate = true;
+    this.absorbMat.uniforms.uOpacity.value = 0.95;
+    if (!this.absorbRang && this.absorbT >= 0.8) {
+      this.absorbRang = true;
+      this.ring(boat.x, boat.y - 0.4, boat.z, this.absorbMat.uniforms.uColor.value.getHex(), 0.5, 10, 0.8);
+    }
+    if (this.absorbT >= 1.35) {
+      this.absorbBoat = null;
+      this.absorbMat.uniforms.uOpacity.value = 0;
+    }
   }
 
   bankSpray(x: number, y: number, z: number): void {
@@ -609,17 +715,37 @@ export class Fx {
       this.trailMat.uniforms.uOpacity.value = boosting ? 0.72 : 0.08;
     }
     this.updateSheets(host);
+    this.stepAbsorb(dt);
     for (const ring of this.slamRings) {
       if (ring.life <= 0) {
         ring.mesh.visible = false;
         continue;
       }
       ring.life -= dt;
-      const k = 1 - ring.life / 0.42;
-      ring.mesh.scale.setScalar(1.4 + k * 7.5);
-      (ring.mesh.material as THREE.ShaderMaterial).uniforms.uOpacity.value = Math.max(0, 0.55 * (1 - k));
+      const k = 1 - ring.life / ring.max;
+      ring.mesh.scale.setScalar(1.4 + k * ring.grow);
+      (ring.mesh.material as THREE.ShaderMaterial).uniforms.uOpacity.value = Math.max(0, ring.opacity * (1 - k));
       if (ring.life <= 0) ring.mesh.visible = false;
     }
+    if (host && host.jetSputter > 0 && Math.random() < 0.5) this.puffSmoke(host, 1);
+    const smokePos = this.smokePts.geometry.getAttribute("position") as THREE.BufferAttribute;
+    let smoking = 0;
+    for (let i = 0; i < smokePos.count; i++) {
+      if (this.smokeLife[i] <= 0) continue;
+      this.smokeLife[i] -= dt;
+      smoking++;
+      smokePos.setXYZ(
+        i,
+        smokePos.getX(i) + this.smokeVel[i * 3] * dt,
+        smokePos.getY(i) + this.smokeVel[i * 3 + 1] * dt,
+        smokePos.getZ(i) + this.smokeVel[i * 3 + 2] * dt,
+      );
+      this.smokeVel[i * 3] *= 1 - 1.8 * dt;
+      this.smokeVel[i * 3 + 2] *= 1 - 1.8 * dt;
+      if (this.smokeLife[i] <= 0) smokePos.setY(i, -20);
+    }
+    if (smoking) smokePos.needsUpdate = true;
+    this.smokeMat.uniforms.uOpacity.value = smoking ? 0.42 : 0;
     const sparkPos = this.sparksPts.geometry.getAttribute("position") as THREE.BufferAttribute;
     let live = 0;
     for (let i = 0; i < sparkPos.count; i++) {

@@ -13,6 +13,8 @@ export const SUPER_DURATION = 2;
 export const JET_BAY_DELAY = 0.5;
 /** Pickup spool / title flash. Matches the bay so the plume lands as the can locks. */
 export const JET_IGNITE = JET_BAY_DELAY;
+/** Empty-tank sputter: plume stutters and dies, then the rack retracts. */
+export const JET_SPUTTER = 0.7;
 export const RAM_BOOST = 1;
 export const JUMP_COST = 0.35;
 export const JUMP_WINDOW = 0.18;

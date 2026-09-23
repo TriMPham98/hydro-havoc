@@ -100,9 +100,9 @@ export class Game {
           const fps = 1 / Math.max(elapsed, 1e-4);
           this.overlay.setDebug(
             `fps ${fps.toFixed(0)}  ${(elapsed * 1000).toFixed(1)}ms  dpr ${stats.dpr.toFixed(2)}\n` +
-              `draw ${stats.calls}  tris ${stats.triangles}\n` +
-              `spd ${this.player.speed.toFixed(1)}  t ${this.player.courseT.toFixed(3)}\n` +
-              `lap ${this.player.lap} cp ${this.player.lastCheckpoint} air ${this.player.airborne ? "Y" : "n"}  boost ${this.player.boostFuel.toFixed(2)}`,
+            `draw ${stats.calls}  tris ${stats.triangles}\n` +
+            `spd ${this.player.speed.toFixed(1)}  t ${this.player.courseT.toFixed(3)}\n` +
+            `lap ${this.player.lap} cp ${this.player.lastCheckpoint} air ${this.player.airborne ? "Y" : "n"}  boost ${this.player.boostFuel.toFixed(2)}`,
           );
         }
         requestAnimationFrame(tick);
@@ -272,6 +272,11 @@ export class Game {
       for (const boat of this.boats) {
         const step = stepBoat(boat, this.track, dt, this.director.time, false);
         if (boat !== this.player) continue;
+        if (step.ranDry) {
+          this.overlay.flashHit("BOOST DRY", 700);
+          this.audio.sputter();
+          this.renderer.backfire(boat);
+        }
         if (step.jumped && !this.playerJumped) {
           this.playerJumped = true;
           this.overlay.flashHit("HYDRO JUMP");
@@ -315,11 +320,12 @@ export class Game {
             this.renderer.slam(e.x, e.y + 0.6, e.z);
             this.renderer.hitPunch(e.boat === this.player ? 0.7 : 0.2);
             if (e.boat === this.player) this.overlay.flashHit("MINE");
-          } else {
+          } else if (e.kind !== "crate-mine") {
             this.audio.pickup(e.kind);
             if (e.boat === this.player) {
               this.overlay.flashHit(e.kind === "super" ? "SUPER" : "BOOST");
               this.renderer.igniteJet(e.boat);
+              this.renderer.absorbPickup(e.boat, e.x, e.y, e.z, e.kind === "crate-boost" ? "blue" : e.kind);
             }
           }
         }

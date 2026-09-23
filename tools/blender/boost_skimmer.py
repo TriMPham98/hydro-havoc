@@ -6,7 +6,6 @@ def add_boost_mech(cfg, mats, parent, api):
     add_cube = api["add_cube"]
     add_cylinder = api["add_cylinder"]
     shade_smooth = api["shade_smooth"]
-    d2b = api["design_to_blender"]
     math = api["math"]
 
     r = 0.072
@@ -15,7 +14,6 @@ def add_boost_mech(cfg, mats, parent, api):
     y_exit = length * 0.78
     house_r = r * 1.08
     rx90 = (math.radians(90.0), 0.0, 0.0)
-    transom_f = cfg.after_f0
 
     sleds = [c for c in parent.children if c.name.startswith("JetSled") and "Out" not in c.name]
     for sled in sleds:
@@ -72,15 +70,6 @@ def add_boost_mech(cfg, mats, parent, api):
         )
         shade_smooth(bucket, 32)
 
-        jx = sled.location.x
-        mouth = add_cube(
-            f"SkimBoostMouth{suf}",
-            (r * 2.4, 0.050, r * 2.2),
-            d2b(jx, transom_f, 0.34),
-            parent=parent,
-            mat=mats["cabin"],
-        )
-        shade_smooth(mouth, 55)
 
     prop = next((c for c in parent.children if c.name == "propeller"), None)
     if prop is None:

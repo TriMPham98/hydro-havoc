@@ -7,3 +7,4 @@ if (!canvas || !root) throw new Error("Missing game roots");
 
 const game = new Game(canvas, root);
 game.start();
+(window as unknown as { __game: Game }).__game = game;
