@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { Boat } from "../sim/Boat";
 import { headingVector } from "../sim/Boat";
 import type { TrackWorld } from "../sim/Track";
+import { NOISE_GLSL } from "./glsl";
 
 const SPRAY_COUNT = 400;
 const MIST_COUNT = 64;
@@ -41,9 +42,13 @@ function discMaterial(
     },
     vertexShader: `
       uniform float uSize;
+      varying float vNear;
       void main() {
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = uSize * (150.0 / max(4.0, -mv.z));
+        float depth = -mv.z;
+        // Clamp sprite size and fade anything hugging the lens, or a pack's spray whites out the screen.
+        gl_PointSize = min(uSize * (150.0 / max(4.0, depth)), 96.0);
+        vNear = smoothstep(3.0, 9.0, depth);
         gl_Position = projectionMatrix * mv;
       }
     `,
@@ -51,12 +56,13 @@ function discMaterial(
       uniform vec3 uColor;
       uniform float uOpacity;
       uniform float uFlatten;
+      varying float vNear;
       void main() {
         vec2 p = gl_PointCoord - vec2(0.5);
         p.y *= uFlatten;
         float d = length(p);
         if (d > 0.5) discard;
-        float a = smoothstep(0.5, 0.12, d) * uOpacity;
+        float a = smoothstep(0.5, 0.12, d) * uOpacity * vNear;
         gl_FragColor = vec4(uColor, a);
       }
     `,
@@ -71,8 +77,10 @@ function sheetMaterial(foam = false): THREE.ShaderMaterial {
     side: THREE.DoubleSide,
     blending: foam ? THREE.AdditiveBlending : THREE.NormalBlending,
     uniforms: {
-      uColor: { value: new THREE.Color(foam ? 0xd8eef6 : 0xb4d8e4) },
+      uColor: { value: new THREE.Color(foam ? 0xd8eef6 : 0xe4f4fa) },
       uOpacity: { value: 0 },
+      uTime: { value: 0 },
+      uSeed: { value: Math.random() * 10 },
     },
     vertexShader: `
       varying vec2 vUv;
@@ -84,13 +92,22 @@ function sheetMaterial(foam = false): THREE.ShaderMaterial {
     fragmentShader: `
       uniform vec3 uColor;
       uniform float uOpacity;
+      uniform float uTime;
+      uniform float uSeed;
       varying vec2 vUv;
+      ${NOISE_GLSL}
       void main() {
-        float edge = smoothstep(0.0, 0.28, vUv.x) * smoothstep(1.0, 0.72, vUv.x);
-        float fade = pow(1.0 - vUv.y, 1.45);
-        float a = edge * fade * uOpacity;
+        float edge = smoothstep(0.0, 0.3, vUv.x) * smoothstep(1.0, 0.7, vUv.x);
+        float fade = pow(1.0 - vUv.y, 1.25);
+        // Lace: streaks racing aft that tear apart toward the tail.
+        vec2 q = vec2(vUv.x * 7.0 + uSeed, vUv.y * 5.0 - uTime * 5.5);
+        float n = hhFbm(q) * 0.7 + hhNoise(vec2(vUv.x * 22.0, vUv.y * 14.0 - uTime * 9.0) + uSeed) * 0.3;
+        float tear = mix(0.28, 0.62, vUv.y);
+        float lace = smoothstep(tear, tear + 0.22, n + edge * 0.2);
+        float a = (lace * 0.85 + 0.15) * edge * fade * uOpacity * 1.35;
         if (a < 0.012) discard;
-        gl_FragColor = vec4(uColor, a);
+        vec3 col = mix(uColor * 0.82, vec3(1.0), lace);
+        gl_FragColor = vec4(col, min(a, 0.95));
       }
     `,
   });
@@ -480,7 +497,8 @@ export class Fx {
     mat.uniforms.uOpacity.value = opacity;
   }
 
-  private updateSheets(host: Boat | undefined): void {
+  private updateSheets(host: Boat | undefined, time = 0): void {
+    for (const mesh of this.sheets) (mesh.material as THREE.ShaderMaterial).uniforms.uTime.value = time;
     if (!host || !host.onWater || host.speed < 5) {
       for (const mesh of this.sheets) {
         mesh.visible = false;
@@ -492,7 +510,7 @@ export class Fx {
     const boost = host.boostHeld && (host.boostFuel > 0 || host.superBoostRemaining > 0) ? 1 : 0;
     const hullW = host.def.hullWidth;
     const hullL = host.def.hullLength;
-    const wet = Math.min(0.5, 0.14 + speed / 115 + boost * 0.1);
+    const wet = Math.min(0.42, 0.1 + speed / 130 + boost * 0.1);
     const transomLen = 5.6 + speed * 0.155 + boost * 2.5;
     const transomWid = hullW * 1.22 + boost * 0.32;
     this.placeSheet(
@@ -541,6 +559,13 @@ export class Fx {
   slam(x: number, y: number, z: number): void {
     this.burst(x, y, z, 72, 22, 18);
     this.ring(x, y, z, 0xdef4fb, 0.42, 7.5, 0.55);
+  }
+
+  /** Boost ignition shockwave flattened on the water behind the transom. */
+  boostRing(boat: Boat, color: number, big = false): void {
+    const fwd = headingVector(boat.yaw);
+    const aft = boat.def.hullLength * 0.55;
+    this.ring(boat.x - fwd.x * aft, boat.y - 0.45, boat.z - fwd.z * aft, color, big ? 0.6 : 0.42, big ? 14 : 9, big ? 0.9 : 0.7);
   }
 
   private ring(x: number, y: number, z: number, color: number, life: number, grow: number, opacity: number): void {
@@ -631,7 +656,7 @@ export class Fx {
   }
 
   bankSpray(x: number, y: number, z: number): void {
-    this.burst(x, y, z, 56, 16, 12);
+    this.burst(x, y, z, 34, 16, 12);
     this.sparks(x, y, z);
   }
 
@@ -708,13 +733,13 @@ export class Fx {
         0.55,
       );
       const wet = host.onWater && host.speed > 5;
-      this.sprayMat.uniforms.uOpacity.value = wet ? Math.min(0.7, 0.28 + host.speed / 62) : 0.04;
+      this.sprayMat.uniforms.uOpacity.value = wet ? Math.min(0.5, 0.22 + host.speed / 80) : 0.04;
       this.sprayMat.uniforms.uSize.value = (boosting ? 72 : 58) + host.speed * 0.32;
       this.mistMat.uniforms.uOpacity.value = wet ? 0.05 + host.speed / 900 : 0.01;
       this.mistMat.uniforms.uSize.value = 22 + host.speed * 0.08;
       this.trailMat.uniforms.uOpacity.value = boosting ? 0.72 : 0.08;
     }
-    this.updateSheets(host);
+    this.updateSheets(host, time);
     this.stepAbsorb(dt);
     for (const ring of this.slamRings) {
       if (ring.life <= 0) {

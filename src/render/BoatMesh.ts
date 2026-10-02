@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { bindBoostLights, STRIP_PREFIX } from "./BoostLights";
+import { bindStackFlames } from "./StackFlames";
 import type { BoatDef } from "../data/boats";
 import { addProceduralJet, bindJet } from "./JetBoost";
 
@@ -215,6 +217,8 @@ const MERGE_KEEP = new Set<string>([
 
 const WET_DARK = new THREE.Color(0x081018);
 
+const HEAT_GLOW: Record<string, number> = { skimmer: 0x2ee6ff, ironwake: 0xffa020, vesper: 0xff2e74 };
+
 type HullHeatSlot = {
   mat: THREE.MeshPhysicalMaterial;
   roughness: number;
@@ -344,7 +348,8 @@ function shouldHeat(mat: THREE.MeshPhysicalMaterial): boolean {
 function bindHullHeat(root: THREE.Group, def: BoatDef): void {
   const remap = new Map<THREE.Material, THREE.Material>();
   const slots: HullHeatSlot[] = [];
-  const glow = new THREE.Color(def.accent);
+  // Boost heat glows in the hull's jet colour, never washing a pale accent over the paint.
+  const glow = new THREE.Color(HEAT_GLOW[def.id] ?? def.accent);
   const apply = (obj: THREE.Mesh, mat: THREE.Material): THREE.Material => {
     const hit = remap.get(mat);
     if (hit) return hit;
@@ -402,8 +407,8 @@ export function applyHullHeat(root: THREE.Object3D, heat: number): void {
     s.mat.roughness = s.roughness * (1 - 0.42 * t);
     s.mat.clearcoat = s.clearcoat + (1 - s.clearcoat) * 0.55 * t;
     s.mat.clearcoatRoughness = s.clearcoatRoughness * (1 - 0.5 * t);
-    s.mat.emissive.lerpColors(s.emissive, s.glow, 0.28 * t);
-    s.mat.emissiveIntensity = s.emissiveIntensity + 0.32 * t;
+    s.mat.emissive.lerpColors(s.emissive, s.glow, 0.2 * t);
+    s.mat.emissiveIntensity = s.emissiveIntensity + 0.22 * t;
   }
 }
 
@@ -464,6 +469,7 @@ export function mergeMeshesByMaterial(root: THREE.Object3D): void {
     if (
       MERGE_KEEP.has(obj.name) ||
       ANIMATED_PREFIX.test(obj.name) ||
+      STRIP_PREFIX.test(obj.name) ||
       underAnimatedParent(obj) ||
       Array.isArray(obj.material) ||
       !obj.geometry
@@ -500,6 +506,57 @@ export function mergeMeshesByMaterial(root: THREE.Object3D): void {
     }
   }
   root.userData.mergedByMaterial = true;
+}
+
+const RIG_CONTAINER = /^(JetSled(?:_\d+)?|TurbineFan.*|propeller)$/;
+/** Parts the jet rig animates one by one — these keep their own nodes. */
+const RIG_SOLO = /^(JetPetal|JetDoor|JetCore|turbineGlow|jetPlume|jetCore|jetWash|jetFlash|jetLight|TurbineFan|JetSled)/;
+
+/**
+ * Merge static parts that ride an animated container (turbine blades on a fan, rack
+ * hardware on a sled) into one mesh per material in the container's local space.
+ * The rig still moves the container, so animation is untouched; draw calls drop a lot.
+ */
+export function mergeWithinRig(root: THREE.Object3D): void {
+  root.updateMatrixWorld(true);
+  const containers: THREE.Object3D[] = [];
+  root.traverse((o) => {
+    if (RIG_CONTAINER.test(o.name)) containers.push(o);
+  });
+  for (const box of containers) {
+    const inv = new THREE.Matrix4().copy(box.matrixWorld).invert();
+    const buckets = new Map<string, { material: THREE.Material; meshes: THREE.Mesh[] }>();
+    const visit = (o: THREE.Object3D) => {
+      for (const child of o.children) {
+        if (RIG_CONTAINER.test(child.name) || RIG_SOLO.test(child.name) || STRIP_PREFIX.test(child.name)) continue;
+        if (child instanceof THREE.Mesh && !(child instanceof THREE.InstancedMesh) && !Array.isArray(child.material) && child.geometry) {
+          const m = child.material as THREE.Material;
+          let b = buckets.get(m.uuid);
+          if (!b) buckets.set(m.uuid, (b = { material: m, meshes: [] }));
+          b.meshes.push(child);
+        }
+        visit(child);
+      }
+    };
+    visit(box);
+    for (const bucket of buckets.values()) {
+      if (bucket.meshes.length < 2) continue;
+      // Only leaf meshes: anything with children would orphan them.
+      const leaves = bucket.meshes.filter((m) => m.children.length === 0);
+      if (leaves.length < 2) continue;
+      const prepared = geometriesForMerge(leaves, inv);
+      if (!prepared) continue;
+      const merged = mergeGeometries(prepared, false) as THREE.BufferGeometry | null;
+      for (const g of prepared) g.dispose();
+      if (!merged) continue;
+      const out = new THREE.Mesh(merged, bucket.material);
+      out.name = `${bucket.material.name || "rig"}_rigMerged`;
+      out.castShadow = true;
+      out.receiveShadow = true;
+      box.add(out);
+      for (const mesh of leaves) mesh.removeFromParent();
+    }
+  }
 }
 
 function wireLoadedBoat(root: THREE.Group, def: BoatDef): void {
@@ -550,6 +607,7 @@ function loadBoatTemplate(def: BoatDef): Promise<THREE.Group | null> {
       const scene = gltf.scene;
       scene.name = def.id;
       mergeMeshesByMaterial(scene);
+      mergeWithinRig(scene);
       wireLoadedBoat(scene, def);
       templates.set(def.id, scene);
       inflight.delete(def.id);
@@ -588,6 +646,8 @@ export function createBoatMesh(def: BoatDef): THREE.Group {
     clone.scale.setScalar(visual);
     clone.userData.hullId = def.id;
     bindJet(clone, def);
+    bindBoostLights(clone, HEAT_GLOW[def.id] ?? def.accent);
+    bindStackFlames(clone);
     return clone;
   }
   void loadBoatTemplate(def);

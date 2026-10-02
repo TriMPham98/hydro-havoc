@@ -1,3 +1,4 @@
+import { Vector3 } from "three";
 import type { BoatId } from "../data/boats";
 import { buildCourse, type CourseId } from "../data/tracks/catalog";
 import { rollCrateKinds } from "../data/tracks/riptideRefinery";
@@ -9,7 +10,7 @@ import { copyPose, createBoat, headingVector, type Boat } from "../sim/Boat";
 import { assignAIBoats, driveAI } from "../sim/AIRacer";
 import { stepBoat } from "../sim/BoatController";
 import { resetRamTable, resolveHulls } from "../sim/Collision";
-import { AI_COUNT, FIXED_DT, MAX_FRAME_DT } from "../sim/constants";
+import { AI_COUNT, FIXED_DT, LAP_COUNT, MAX_FRAME_DT } from "../sim/constants";
 import { boostLive, igniteJet } from "../sim/BoostSystem";
 import { lerp } from "../sim/math";
 import { stepPickups } from "../sim/Pickups";
@@ -26,6 +27,10 @@ import type { TrackWorld } from "../sim/Track";
 import { Overlay } from "../ui/overlay";
 
 type Mode = "title" | "select" | "race" | "pause" | "results";
+
+function voiceOf(id: BoatId): number {
+  return id === "ironwake" ? 1 : id === "vesper" ? 2 : 0;
+}
 
 export class Game {
   private overlay: Overlay;
@@ -50,6 +55,7 @@ export class Game {
   private courseId: CourseId = "riptide";
   private visualCourse: CourseId | null = null;
   private lastAttractBeat = -1;
+  private lastLap = 0;
 
   constructor(canvas: HTMLCanvasElement, root: HTMLElement) {
     this.overlay = new Overlay(root);
@@ -60,24 +66,41 @@ export class Game {
     this.track = buildCourse(this.courseId);
     this.renderer.loadTrack(this.track);
     this.visualCourse = this.courseId;
+    const camDist = (x: number, y: number, z: number) => this.renderer.camera.camera.position.distanceTo(this.fwPos.set(x, y, z));
+    this.renderer.onFireworkBurst = (x, y, z) => this.audio.firework(camDist(x, y, z));
+    this.renderer.onFireworkLaunch = (x, y, z) => this.audio.fireworkLaunch(camDist(x, y, z));
 
     this.overlay.on({
       start: () => this.goSelect(),
-      select: (id) => this.pickHull(id),
+      select: (id) => {
+        this.audio.ui("move");
+        this.pickHull(id);
+      },
       race: () => this.beginRace(),
       retry: () => this.beginRace(),
-      menu: () => this.goTitle(),
+      menu: () => {
+        this.audio.ui("back");
+        this.goTitle();
+      },
       resume: () => this.resume(),
       changeBoat: () => this.goSelect(),
+      mute: () => this.overlay.setMuted(this.audio.toggleMute()),
     });
+    this.overlay.setMuted(this.audio.isMuted);
     this.overlay.show("title");
     window.addEventListener("resize", () => this.renderer.resize());
     const unlock = () => {
+      const fresh = !this.audio.ready;
       this.audio.resume();
-      if (this.mode === "title" || this.mode === "select") this.audio.setMusic("title");
+      if (fresh && (this.mode === "title" || this.mode === "select")) this.audio.setMusic("title");
+      this.overlay.setAudioLive(true);
     };
     window.addEventListener("pointerdown", unlock);
-    window.addEventListener("keydown", unlock);
+    window.addEventListener("keydown", (e) => {
+      unlock();
+      if (e.code === "KeyM") this.overlay.setMuted(this.audio.toggleMute());
+      if (e.code === "KeyN") this.overlay.flashHit(this.audio.toggleAnnouncer() ? "ANNOUNCER ON" : "ANNOUNCER OFF", 900);
+    });
   }
 
   start(): void {
@@ -94,7 +117,11 @@ export class Game {
           this.acc -= FIXED_DT;
         }
         this.time += raw;
+        const beat = this.audio.beatPulse();
+        this.renderer.setBeat(beat);
+        this.overlay.setBeat(beat, this.audio);
         this.renderer.render(this.track, this.boats, this.player, raw, this.time, this.camMode());
+        this.feedSpatialAudio();
         if (this.overlay.showDebug) {
           const stats = this.renderer.frameStats();
           const fps = 1 / Math.max(elapsed, 1e-4);
@@ -111,6 +138,39 @@ export class Game {
     });
   }
 
+  /** Rival engines are positioned against the render camera, so this runs after render. */
+  private feedSpatialAudio(): void {
+    const cam = this.renderer.camera.camera;
+    const fwd = cam.getWorldDirection(this.camFwd);
+    const racing = this.mode === "race" || this.mode === "pause";
+    const rivals = racing
+      ? this.boats
+          .filter((b) => b.ai)
+          .map((b) => ({
+            id: b.id,
+            x: b.x,
+            y: b.y,
+            z: b.z,
+            vx: b.vx,
+            vy: b.vy,
+            vz: b.vz,
+            speed: b.speed,
+            maxSpeed: b.def.maxSpeed,
+            boosting: b.boostHeld && boostLive(b),
+            voice: voiceOf(b.def.id),
+          }))
+      : [];
+    this.audio.setRivals(rivals, { x: cam.position.x, y: cam.position.y, z: cam.position.z, fx: fwd.x, fy: fwd.y, fz: fwd.z });
+    if (this.player) {
+      const t = this.player.courseT;
+      this.audio.setEnvironment(t >= 0.52 && t < 0.78);
+    }
+  }
+
+  private camFwd = new Vector3();
+  private fwPos = new Vector3();
+  private nextAttractShow = 6;
+
   private camMode(): CameraMode {
     if (this.mode === "select") return "showcase";
     if (this.mode === "race" && this.director.phase === "closing") return "finish";
@@ -120,6 +180,7 @@ export class Game {
 
   private goTitle(): void {
     this.mode = "title";
+    this.overlay.setAudioLive(this.audio.ready);
     this.overlay.show("title");
     this.audio.setMusic("title");
     this.spawnIdle();
@@ -128,6 +189,7 @@ export class Game {
   private goSelect(): void {
     this.audio.resume();
     this.audio.setMusic("title");
+    this.audio.ui("confirm");
     this.mode = "select";
     this.overlay.show("select");
     this.overlay.setSelected(this.playerBoat);
@@ -206,7 +268,10 @@ export class Game {
 
   private beginRace(): void {
     this.audio.resume();
-    this.audio.setMusic("race");
+    this.audio.ui("confirm");
+    this.audio.setMusic("countdown");
+    this.audio.setIntensity(1);
+    this.lastLap = 0;
     this.bindCourse();
     resetRamTable();
     this.player = createBoat("player", this.playerBoat, false);
@@ -239,6 +304,7 @@ export class Game {
     this.mode = "race";
     this.overlay.show("hud");
     this.audio.setMusic("race");
+    this.audio.ui("confirm");
   }
 
   private fixed(dt: number): void {
@@ -277,6 +343,7 @@ export class Game {
           this.audio.sputter();
           this.renderer.backfire(boat);
         }
+        if (step.jumped) this.audio.jump();
         if (step.jumped && !this.playerJumped) {
           this.playerJumped = true;
           this.overlay.flashHit("HYDRO JUMP");
@@ -291,7 +358,7 @@ export class Game {
           boat.camShake = Math.max(boat.camShake, 0.22);
           this.renderer.hitPunch(0.22);
           if (this.time - this.lastScrape > 0.11) {
-            this.audio.scrape();
+            this.audio.scrape(Math.max(-0.7, Math.min(0.7, this.player.steer)));
             this.lastScrape = this.time;
           }
         }
@@ -305,7 +372,7 @@ export class Game {
         const rams = resolveHulls(this.boats, this.time);
         for (const ram of rams) {
           if (!ram.awarded) continue;
-          this.audio.ram();
+          this.audio.ram(ram.attacker === this.player || ram.defender === this.player ? 0 : 0.4);
           this.renderer.slam(ram.defender.x, ram.defender.y + 1, ram.defender.z);
           this.renderer.sparks(ram.defender.x, ram.defender.y + 1.2, ram.defender.z);
           if (ram.attacker === this.player || ram.defender === this.player) {
@@ -335,13 +402,25 @@ export class Game {
 
     if (this.mode === "race" && (counting || racing)) {
       if (this.director.phase === "closing" && this.lastPhase !== "closing") {
-        this.overlay.flashHit("FINISH", 1600);
-        this.audio.finish();
+        this.overlay.flashHit(this.player.place === 1 ? "WINNER" : "FINISH", 1600);
+        this.renderer.celebrate("finish");
+        this.audio.finish(this.player.place === 1);
+      }
+      if (this.director.phase === "racing" && this.player.lap !== this.lastLap) {
+        this.lastLap = this.player.lap;
+        if (this.player.lap < LAP_COUNT) {
+          const final = this.player.lap === LAP_COUNT - 1;
+          this.audio.lap(this.player.lap + 1, final);
+          this.renderer.celebrate("lap");
+          this.audio.setIntensity(final ? 3 : 2);
+          this.overlay.flashHit(final ? "FINAL LAP" : `LAP ${this.player.lap + 1}`, 1400);
+        }
       }
       this.lastPhase = this.director.phase;
       const label = countdownLabel(this.director);
       if (label && label !== this.lastCount) {
         this.audio.countdown(label);
+        if (label === "GO") this.renderer.celebrate("go");
         this.lastCount = label;
       }
       this.overlay.updateHud(
@@ -352,8 +431,9 @@ export class Game {
       );
       if (this.director.phase === "racing" && this.player.place !== this.lastPlace) {
         if (this.director.time > 2.2) {
-          if (this.player.place < this.lastPlace) this.overlay.flashHit("PASSED");
-          else if (this.player.place > this.lastPlace) this.overlay.flashHit("OVERTAKEN");
+          const gained = this.player.place < this.lastPlace;
+          this.overlay.flashHit(gained ? "PASSED" : "OVERTAKEN");
+          this.audio.place(gained, this.player.place);
         }
         this.lastPlace = this.player.place;
       }
@@ -372,11 +452,15 @@ export class Game {
       this.mode = "results";
       this.overlay.showResults(this.boats);
       this.overlay.show("results");
-      this.audio.setMusic("title");
+      this.audio.setMusic("results");
     } else if (this.mode === "title") {
       for (const boat of this.boats) {
         driveAI(boat, this.track, this.player, true, this.boats, "demo");
         stepBoat(boat, this.track, dt, 0, false);
+      }
+      if (this.time > this.nextAttractShow) {
+        this.nextAttractShow = this.time + 14;
+        this.renderer.celebrate("lap", this.player.courseT + 0.025);
       }
       const beat = Math.floor(this.time / 2.15);
       if (beat !== this.lastAttractBeat && this.boats.length) {
@@ -392,8 +476,17 @@ export class Game {
     }
 
     const boosting = this.player.boostHeld && boostLive(this.player);
-    const voice = this.player.def.id === "ironwake" ? 2 : this.player.def.id === "vesper" ? 1 : 0;
-    this.audio.setEngine(this.player.speed, boosting, voice, this.player.airborne);
+    // On the grid the throttle only revs the engine — blip it during the countdown.
+    const throttle = counting ? input.throttle : this.mode === "race" || this.mode === "title" ? this.player.throttle : 0;
+    this.audio.setEngine({
+      speed: this.mode === "pause" ? 0 : this.player.speed,
+      maxSpeed: this.player.def.maxSpeed,
+      throttle: this.mode === "pause" ? 0 : throttle,
+      boosting: this.mode !== "pause" && boosting,
+      superOn: boosting && this.player.superBoostRemaining > 0,
+      airborne: this.player.airborne,
+      voice: voiceOf(this.player.def.id),
+    });
   }
 
   private menus(): void {
@@ -405,7 +498,10 @@ export class Game {
       if (this.input.consumeMenuLeft()) this.overlay.cycleHull(-1);
       if (this.input.consumeMenuRight()) this.overlay.cycleHull(1);
       if (this.input.consumeConfirm()) this.beginRace();
-      if (this.input.consumePause()) this.goTitle();
+      if (this.input.consumePause()) {
+        this.audio.ui("back");
+        this.goTitle();
+      }
       return;
     }
     if (this.mode === "results") {
@@ -417,7 +513,8 @@ export class Game {
       if (this.mode === "race") {
         this.mode = "pause";
         this.overlay.show("pause");
-        this.audio.setMusic("muted");
+        this.audio.setMusic("paused");
+        this.audio.ui("back");
       } else if (this.mode === "pause") {
         this.resume();
       }

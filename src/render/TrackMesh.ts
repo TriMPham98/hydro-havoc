@@ -137,6 +137,279 @@ function canalAlbedo(kind: "wall" | "cope"): THREE.DataTexture {
   return tex;
 }
 
+/**
+ * Cast-concrete form panels, one per UV tile (5 m along × 4.5 m tall): recessed joints,
+ * tie-holes, rust bleeding down from the ties, efflorescence under the lift line.
+ * Returns albedo + a tangent-space normal map baked from the same height field.
+ */
+export function concretePanelMaps(size = 256): { albedo: THREE.DataTexture; normal: THREE.DataTexture } {
+  const H = new Float32Array(size * size);
+  const A = new Float32Array(size * size * 3);
+  const holes: [number, number][] = [];
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) holes.push([(i + 0.5) / 4, 0.22 + j * 0.5]);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const v = y / size;
+      const pores = vnoise(u, v, 64) * 0.5 + vnoise(u, v, 128) * 0.5;
+      const blotch = vnoise(u, v, 6) * 0.6 + vnoise(u, v, 12) * 0.4;
+      let h = pores * 0.08 + blotch * 0.05;
+      // Vertical form joint at the tile edge, shallower horizontal lift line at mid height.
+      const du = Math.min(u, 1 - u);
+      const joint = du < 0.008 ? 1 : du < 0.014 ? (0.014 - du) / 0.006 : 0;
+      const lift = Math.abs(v - 0.5) < 0.004 ? 0.6 : 0;
+      h -= joint * 0.9 + lift * 0.5;
+      let rust = 0;
+      let hole = 0;
+      for (const [hu, hv] of holes) {
+        const d = Math.hypot((u - hu) * 1.1, v - hv);
+        if (d < 0.012) hole = Math.max(hole, 1 - d / 0.012);
+        // Streak bleeds downward (v decreasing) from each tie.
+        const below = hv - v;
+        if (below > 0 && below < 0.32) {
+          const w = Math.exp(-Math.pow((u - hu) / (0.005 + below * 0.03), 2));
+          rust = Math.max(rust, w * (1 - below / 0.32) * (0.5 + vnoise(u, v, 40) * 0.6));
+        }
+      }
+      h -= hole * 0.8;
+      const effl = v < 0.5 && v > 0.3 ? Math.pow(Math.max(0, vnoise(u, 0.5, 48) - 0.5) * 2, 2) * (1 - (0.5 - v) / 0.2) : 0;
+      H[y * size + x] = h;
+      const base = 0.5 + blotch * 0.12 + pores * 0.06 - joint * 0.22 - hole * 0.3;
+      let r = base * 0.93;
+      let g = base * 0.94;
+      let b = base * 0.98;
+      r = r * (1 - rust) + 0.42 * rust;
+      g = g * (1 - rust) + 0.2 * rust;
+      b = b * (1 - rust) + 0.09 * rust;
+      r += effl * 0.18;
+      g += effl * 0.18;
+      b += effl * 0.17;
+      const i3 = (y * size + x) * 3;
+      A[i3] = r;
+      A[i3 + 1] = g;
+      A[i3 + 2] = b;
+    }
+  }
+  const alb = new Uint8Array(size * size * 4);
+  const nrm = new Uint8Array(size * size * 4);
+  const at = (x: number, y: number) => H[((y + size) % size) * size + ((x + size) % size)];
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x;
+      alb[i * 4] = Math.max(0, Math.min(255, A[i * 3] * 255));
+      alb[i * 4 + 1] = Math.max(0, Math.min(255, A[i * 3 + 1] * 255));
+      alb[i * 4 + 2] = Math.max(0, Math.min(255, A[i * 3 + 2] * 255));
+      alb[i * 4 + 3] = 255;
+      const dx = (at(x + 1, y) - at(x - 1, y)) * 3.2;
+      const dy = (at(x, y + 1) - at(x, y - 1)) * 3.2;
+      const len = Math.hypot(dx, dy, 1);
+      nrm[i * 4] = Math.round((-dx / len * 0.5 + 0.5) * 255);
+      nrm[i * 4 + 1] = Math.round((-dy / len * 0.5 + 0.5) * 255);
+      nrm[i * 4 + 2] = Math.round((1 / len * 0.5 + 0.5) * 255);
+      nrm[i * 4 + 3] = 255;
+    }
+  }
+  const mk = (data: Uint8Array<ArrayBuffer>, srgb: boolean) => {
+    const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    tex.generateMipmaps = true;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.anisotropy = 8;
+    tex.needsUpdate = true;
+    return tex;
+  };
+  return { albedo: mk(alb, true), normal: mk(nrm, false) };
+}
+
+/** Wall UV v is metres × 0.22 from 1.6 m below the surface, so the waterline sits here. */
+export const WALL_WATERLINE_V = 1.6 * 0.22;
+
+/**
+ * Concrete wall shader: wet algae band hugging the waterline (darker, glossier, greener)
+ * and animated caustics thrown up the wall by the water.
+ */
+function wetConcrete(mat: THREE.MeshStandardMaterial, uTime: { value: number }): void {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = uTime;
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec2 vWallUv;")
+      .replace("#include <uv_vertex>", "#include <uv_vertex>\nvWallUv = uv;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+        varying vec2 vWallUv;
+        uniform float uTime;
+        float wHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float wNoise(vec2 p) {
+          vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
+          return mix(mix(wHash(i), wHash(i + vec2(1.0, 0.0)), u.x), mix(wHash(i + vec2(0.0, 1.0)), wHash(i + vec2(1.0, 1.0)), u.x), u.y);
+        }
+        float wetBand() {
+          float edge = ${WALL_WATERLINE_V.toFixed(4)} + 0.1 + wNoise(vec2(vWallUv.x * 9.0, 0.0)) * 0.08;
+          return 1.0 - smoothstep(edge - 0.03, edge + 0.03, vWallUv.y);
+        }`,
+      )
+      .replace(
+        "#include <map_fragment>",
+        `#include <map_fragment>
+        {
+          float wet = wetBand();
+          float algae = wet * smoothstep(${(WALL_WATERLINE_V - 0.12).toFixed(4)}, ${(WALL_WATERLINE_V + 0.05).toFixed(4)}, vWallUv.y)
+            * (0.55 + 0.45 * wNoise(vWallUv * vec2(30.0, 12.0)));
+          diffuseColor.rgb *= mix(1.0, 0.5, wet);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.11, 0.14, 0.07), algae * 0.65);
+          // Grime drips from the coping down the upper wall.
+          float drip = smoothstep(1.2, 1.85, vWallUv.y) * smoothstep(0.55, 0.85, wNoise(vec2(vWallUv.x * 26.0, vWallUv.y * 1.5)));
+          diffuseColor.rgb *= 1.0 - drip * 0.35;
+        }`,
+      )
+      .replace(
+        "#include <roughnessmap_fragment>",
+        `#include <roughnessmap_fragment>
+        roughnessFactor = mix(roughnessFactor, 0.28, wetBand());`,
+      )
+      .replace(
+        "#include <emissivemap_fragment>",
+        `#include <emissivemap_fragment>
+        {
+          float wl = ${WALL_WATERLINE_V.toFixed(4)};
+          float band = smoothstep(wl - 0.01, wl + 0.03, vWallUv.y) * (1.0 - smoothstep(wl + 0.04, wl + 0.42, vWallUv.y));
+          // Iterated interference caustic: soft bright webbing that swims, not wiry arcs.
+          vec2 p = mod(vec2(vWallUv.x * 2.6, vWallUv.y * 3.4) * 6.2831853, 6.2831853) - 250.0;
+          vec2 q = p;
+          float c = 1.0;
+          float inten = 0.006;
+          for (int n = 0; n < 4; n++) {
+            float t = uTime * 0.55 * (1.0 - (3.5 / float(n + 1)));
+            q = p + vec2(cos(t - q.x) + sin(t + q.y), sin(t - q.y) + cos(t + q.x));
+            c += 1.0 / length(vec2(p.x / (sin(q.x + t) / inten), p.y / (cos(q.y + t) / inten)));
+          }
+          c /= 4.0;
+          c = 1.17 - pow(c, 1.4);
+          float caustic = clamp(pow(abs(c), 7.0), 0.0, 2.0);
+          totalEmissiveRadiance += vec3(0.5, 0.82, 0.78) * caustic * band * 0.16;
+        }`,
+      );
+  };
+  mat.customProgramCacheKey = () => "wetConcrete";
+}
+
+function hazardTexture(): THREE.DataTexture {
+  const w = 64;
+  const h = 16;
+  const data = new Uint8Array(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const stripe = Math.floor((x + y) / 8) % 2 === 0;
+      const wear = vnoise(x / w, y / h, 8) > 0.82;
+      const i = (y * w + x) * 4;
+      const yel = stripe && !wear;
+      data[i] = yel ? 235 : 22;
+      data[i + 1] = yel ? 178 : 22;
+      data[i + 2] = yel ? 20 : 24;
+      data[i + 3] = 255;
+    }
+  }
+  const tex = new THREE.DataTexture(data, w, h, THREE.RGBAFormat);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Hazard-striped band on the inner face of the coping lip, both banks in one mesh. */
+function hazardGeometry(spline: ArcSpline, closed: boolean): THREE.BufferGeometry {
+  const segs = alongSegs(spline, WALL_ALONG);
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  let base = 0;
+  for (const side of [1, -1] as const) {
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const f = spline.getFrameAtT(closed ? t : Math.min(t, 0.999));
+      const lat = (f.width * 0.5 - 0.32 - 0.012) * side;
+      const y0 = f.y + f.bankHeight + 2.2;
+      const x = f.x + f.rx * lat;
+      const z = f.z + f.rz * lat;
+      positions.push(x, y0 - 0.02, z, x, y0 + 0.36, z);
+      const along = t * spline.totalLength * 0.5;
+      uvs.push(along, 0, along, 1);
+      if (i < segs) {
+        const a = base + i * 2;
+        const b = a + 2;
+        if (side > 0) indices.push(a, a + 1, b + 1, a, b + 1, b);
+        else indices.push(a, b, b + 1, a, b + 1, a + 1);
+      }
+    }
+    base += (segs + 1) * 2;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+let weatherTex: THREE.DataTexture | null = null;
+
+/** Greyscale detail: horizontal weld seams, vertical rust/grime streaks, dirtier at the base. */
+function weatheredMetalMap(): THREE.DataTexture {
+  if (weatherTex) return weatherTex;
+  const size = 256;
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const v = y / size;
+      const seam = Math.abs(((v * 6) % 1) - 0.5) > 0.485 ? 0.55 : 1;
+      const col = vnoise(u, 0.37, 48);
+      const streak = Math.pow(Math.max(0, col - 0.45) * 1.8, 1.6) * (0.4 + vnoise(u, v, 24) * 0.8) * (1 - v * 0.3);
+      const grime = (1 - v) * 0.25 * vnoise(u, v, 6);
+      const grain = vnoise(u, v, 64) * 0.08;
+      const g = Math.max(0.35, Math.min(1, (0.92 - streak * 0.45 - grime + grain) * seam));
+      const i = (y * size + x) * 4;
+      data[i] = Math.round(g * 255);
+      data[i + 1] = Math.round(g * 248);
+      data[i + 2] = Math.round(g * 240);
+      data[i + 3] = 255;
+    }
+  }
+  const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  weatherTex = tex;
+  return tex;
+}
+
+/** Give every plain prop material the weathering map so set dressing reads as built, not primitive. */
+function weatherProps(group: THREE.Group, skip: THREE.Material[]): void {
+  const keep = new Set<THREE.Material>(skip);
+  const map = weatheredMetalMap();
+  group.traverse((obj) => {
+    if (!(obj instanceof THREE.Mesh)) return;
+    const m = obj.material;
+    if (!(m instanceof THREE.MeshStandardMaterial) || keep.has(m) || m.map) return;
+    if (m.emissiveIntensity > 0.05 && m.emissive.getHex() !== 0) return;
+    m.map = map;
+    m.needsUpdate = true;
+  });
+}
+
 function canalWallGeometry(spline: ArcSpline, closed: boolean, side: number): THREE.BufferGeometry {
   const segs = alongSegs(spline, WALL_ALONG);
   const positions: number[] = [];
@@ -295,14 +568,21 @@ export function createTrackGroup(track: TrackWorld): {
 } {
   const group = new THREE.Group();
   const waterMat = createWaterMaterial("canal");
-  const wallTex = canalAlbedo("wall");
+  const panels = concretePanelMaps();
   const copeTex = canalAlbedo("cope");
+  const uTime = { value: 0 };
   const wallMat = new THREE.MeshStandardMaterial({
-    color: 0xd4d0c6,
-    map: wallTex,
-    roughness: 0.9,
-    metalness: 0.08,
+    color: 0xd8d2c6,
+    map: panels.albedo,
+    normalMap: panels.normal,
+    normalScale: new THREE.Vector2(1.1, 1.1),
+    roughness: 0.86,
+    metalness: 0.04,
   });
+  wetConcrete(wallMat, uTime);
+  group.userData.tick = (time: number) => {
+    uTime.value = time;
+  };
   const copeMat = new THREE.MeshStandardMaterial({
     color: 0xc8b49a,
     map: copeTex,
@@ -349,6 +629,18 @@ export function createTrackGroup(track: TrackWorld): {
   };
 
   addRibbon(track.main, true, copeMat, wallMat);
+  const hazardMat = new THREE.MeshStandardMaterial({
+    map: hazardTexture(),
+    roughness: 0.55,
+    metalness: 0.1,
+    emissive: 0x2a1c00,
+    emissiveIntensity: 0.6,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+  });
+  const hazard = new THREE.Mesh(hazardGeometry(track.main, true), hazardMat);
+  hazard.name = "copingHazard";
+  group.add(hazard);
 
   const start = track.start;
   const gate = new THREE.Group();
@@ -383,6 +675,7 @@ export function createTrackGroup(track: TrackWorld): {
   dressCampus(group);
   dressHorizon(group);
   dressRefineryFill(group, track);
+  weatherProps(group, [wallMat, copeMat, foamMat, hazardMat]);
   return { group, waterMat };
 }
 
@@ -476,13 +769,51 @@ function dressProps(group: THREE.Group, track: TrackWorld): void {
   if (flames) flames.name = "flareFlame";
 
   const wf = track.main.getFrameAtT(0.83);
-  const fall = new THREE.Mesh(
-    new THREE.PlaneGeometry(14, 22),
-    new THREE.MeshBasicMaterial({ color: 0xaeefff, transparent: true, opacity: 0.38, side: THREE.DoubleSide }),
-  );
+  const fall = new THREE.Mesh(new THREE.PlaneGeometry(14, 22, 1, 1), waterfallMaterial(group));
+  fall.name = "waterfall";
   fall.position.set(wf.x + wf.rx * (wf.width * 0.5 + 6), wf.y + 10, wf.z + wf.rz * (wf.width * 0.5 + 6));
   fall.rotation.y = Math.atan2(wf.tx, wf.tz);
   group.add(fall);
+}
+
+/** Sheeting outfall: streaks racing down, frothing white at the lip and the foot. */
+function waterfallMaterial(group: THREE.Group): THREE.ShaderMaterial {
+  const mat = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      varying vec2 vUv;
+      float h(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+      float n(vec2 p) {
+        vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(mix(h(i), h(i + vec2(1.0, 0.0)), u.x), mix(h(i + vec2(0.0, 1.0)), h(i + vec2(1.0, 1.0)), u.x), u.y);
+      }
+      void main() {
+        float streak = n(vec2(vUv.x * 40.0, vUv.y * 3.0 + uTime * 4.0)) * 0.6 + n(vec2(vUv.x * 90.0, vUv.y * 6.0 + uTime * 6.5)) * 0.4;
+        float froth = smoothstep(0.82, 1.0, vUv.y) + smoothstep(0.18, 0.0, vUv.y);
+        float edge = smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.92, vUv.x);
+        float a = (0.32 + streak * 0.45 + froth * 0.5) * edge;
+        vec3 col = mix(vec3(0.55, 0.78, 0.82), vec3(0.95, 0.98, 1.0), clamp(streak * 0.7 + froth, 0.0, 1.0));
+        gl_FragColor = vec4(col, clamp(a, 0.0, 0.92));
+      }
+    `,
+  });
+  const prev = group.userData.tick as ((t: number) => void) | undefined;
+  group.userData.tick = (t: number) => {
+    prev?.(t);
+    mat.uniforms.uTime.value = t;
+  };
+  return mat;
 }
 
 /** Indoor night beat — vault over the existing tunnel, not a second overlapping ribbon. */

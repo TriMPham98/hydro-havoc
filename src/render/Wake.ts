@@ -3,6 +3,7 @@ import type { Boat } from "../sim/Boat";
 import { headingVector } from "../sim/Boat";
 import { saturate } from "../sim/math";
 import { gerstnerHeight } from "../sim/waterHeight";
+import { NOISE_GLSL } from "./glsl";
 
 /** Hull pose is ~0.55 above Gerstner water; keep the strip on the canal. */
 const WATERLINE = 0.52;
@@ -46,6 +47,7 @@ function foamMaterial(skirt: boolean): THREE.ShaderMaterial {
       uniform float uTime;
       uniform float uSkirt;
       varying vec2 vUv;
+      ${NOISE_GLSL}
       void main() {
         float edge = smoothstep(0.42, 0.0, min(vUv.x, 1.0 - vUv.x));
         float fade = pow(1.0 - vUv.y, 1.85);
@@ -58,7 +60,11 @@ function foamMaterial(skirt: boolean): THREE.ShaderMaterial {
           tail = 1.0;
           streak = 0.88 + 0.12 * sin(vUv.x * 40.0 - uTime * 6.0);
         }
-        vec3 col = mix(uColorTeal, uColorFoam, clamp(edge * 0.85 + 0.2, 0.0, 1.0));
+        // Foam lace: cells that open up as the wake ages toward the tail.
+        float n = hhFbm(vec2(vUv.x * 9.0, vUv.y * 16.0 - uTime * 1.6));
+        float lace = smoothstep(0.3 + vUv.y * 0.35, 0.62 + vUv.y * 0.25, n + edge * 0.25);
+        streak *= 0.45 + 0.75 * lace;
+        vec3 col = mix(uColorTeal, uColorFoam, clamp(edge * 0.85 + 0.2 + lace * 0.3, 0.0, 1.0));
         col = mix(col, uColorBoost, uBoost * (0.25 + edge * 0.5));
         float alpha = uOpacity * fade * tail * mix(0.0, 0.95, edge) * streak;
         if (alpha < 0.02) discard;

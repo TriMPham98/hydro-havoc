@@ -6,6 +6,11 @@ import { formatTime, type RaceDirector } from "../sim/RaceDirector";
 
 export type Screen = "title" | "select" | "hud" | "pause" | "results";
 
+/** Whatever can hand the overlay a byte spectrum (the audio engine). */
+export interface SpectrumSource {
+  spectrum(out: Uint8Array<ArrayBuffer>): boolean;
+}
+
 export class Overlay {
   readonly root: HTMLElement;
   private title!: HTMLElement;
@@ -36,6 +41,12 @@ export class Overlay {
   private onMenu?: () => void;
   private onResume?: () => void;
   private onChangeBoat?: () => void;
+  private onMute?: () => void;
+  private viz!: HTMLCanvasElement;
+  private vizCtx: CanvasRenderingContext2D | null = null;
+  private bins = new Uint8Array(128);
+  private soundBtn!: HTMLButtonElement;
+  private screen: Screen = "title";
   selected: BoatId = "skimmer";
   course: CourseId = "riptide";
   showDebug = false;
@@ -44,13 +55,16 @@ export class Overlay {
     this.root = root;
     root.innerHTML = `
       <section class="screen title-screen" id="title">
-        <h1 class="wordmark">HYDRO<span>HAVOC</span></h1>
+        <h1 class="wordmark"><b data-text="HYDRO">HYDRO</b><span data-text="HAVOC">HAVOC</span></h1>
         <p class="tagline">Riptide Refinery</p>
+        <canvas class="viz" id="viz" width="640" height="90" aria-hidden="true"></canvas>
         <div class="btn-row">
           <button class="primary press-start" id="title-start">Press Start</button>
         </div>
         <p class="hint">Enter / Space · Gamepad A</p>
+        <p class="sound-gate" id="sound-gate">🔊 Turn your sound up — click or press any key</p>
       </section>
+      <button class="sound-toggle" id="sound-toggle" aria-label="Toggle sound" title="Sound (M)"></button>
       <section class="screen select-screen" id="select" hidden>
         <h2 class="wordmark select-title">Choose Hull</h2>
         <aside class="hull-sheet" id="hull-sheet"></aside>
@@ -93,6 +107,7 @@ export class Overlay {
           <h2>Paused</h2>
           <p>Hydro Jump: release throttle, tap brake, then tap boost. Hold brake after the tap to go higher.</p>
           <p>Blue / red icons fill boost. Yellow is Super Boost. Ram a slower boat for +1s boost. Crates drop scrap or mines.</p>
+          <p class="pause-keys"><kbd>M</kbd> mute · <kbd>N</kbd> announcer · rev on the grid with <kbd>W</kbd></p>
           <div class="btn-row">
             <button class="primary" id="pause-resume">Resume</button>
             <button class="ghost" id="pause-menu">Title</button>
@@ -144,7 +159,52 @@ export class Overlay {
     this.el("#pause-menu").addEventListener("click", () => this.onMenu?.());
     this.el("#retry").addEventListener("click", () => this.onRetry?.());
     this.el("#to-select").addEventListener("click", () => this.onChangeBoat?.());
+    this.viz = this.el("#viz") as HTMLCanvasElement;
+    this.vizCtx = this.viz.getContext("2d");
+    this.soundBtn = this.el("#sound-toggle") as HTMLButtonElement;
+    this.soundBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.onMute?.();
+    });
     this.renderBoatCards();
+  }
+
+  setMuted(muted: boolean): void {
+    this.soundBtn.classList.toggle("off", muted);
+    this.soundBtn.innerHTML = muted
+      ? `<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9l5 6M21 9l-5 6" fill="none"/></svg>`
+      : `<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none"/></svg>`;
+  }
+
+  setAudioLive(live: boolean): void {
+    this.root.classList.toggle("audio-live", live);
+  }
+
+  /** Beat pulse drives CSS (--beat) everywhere; the title also draws the spectrum. */
+  setBeat(beat: number, source: SpectrumSource): void {
+    this.root.style.setProperty("--beat", beat.toFixed(3));
+    if (this.screen !== "title" || !this.vizCtx) return;
+    const ctx = this.vizCtx;
+    const w = this.viz.width;
+    const h = this.viz.height;
+    ctx.clearRect(0, 0, w, h);
+    if (!source.spectrum(this.bins)) return;
+    const bars = 48;
+    const gap = 3;
+    const bw = (w - gap * (bars - 1)) / bars;
+    for (let i = 0; i < bars; i++) {
+      // Mirror around the centre: lows in the middle, highs at the edges.
+      const d = Math.abs(i - (bars - 1) / 2) / ((bars - 1) / 2);
+      const bin = Math.floor(2 + Math.pow(d, 1.4) * 70);
+      const v = this.bins[bin] / 255;
+      const bh = Math.max(2, Math.pow(v, 1.5) * h * 0.95);
+      const x = i * (bw + gap);
+      const grad = ctx.createLinearGradient(0, h, 0, h - bh);
+      grad.addColorStop(0, "rgba(46,230,255,0.15)");
+      grad.addColorStop(1, v > 0.7 ? "rgba(255,225,74,0.95)" : "rgba(46,230,255,0.9)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(x, (h - bh) / 2, bw, bh);
+    }
   }
 
   on(handlers: {
@@ -155,7 +215,9 @@ export class Overlay {
     resume?: () => void;
     select?: (id: BoatId) => void;
     changeBoat?: () => void;
+    mute?: () => void;
   }): void {
+    this.onMute = handlers.mute;
     this.onStart = handlers.start;
     this.onRace = handlers.race;
     this.onRetry = handlers.retry;
@@ -166,6 +228,8 @@ export class Overlay {
   }
 
   show(screen: Screen): void {
+    this.screen = screen;
+    this.root.dataset.screen = screen;
     this.title.hidden = screen !== "title";
     this.select.hidden = screen !== "select";
     this.hud.hidden = screen !== "hud";
@@ -225,6 +289,7 @@ export class Overlay {
   }
 
   flashHit(text: string, ms = 900): void {
+    if (this.callout.textContent !== text || !this.calloutUntil) restartAnim(this.callout, "pop");
     this.callout.textContent = text;
     this.calloutUntil = performance.now() + ms;
   }

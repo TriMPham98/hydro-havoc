@@ -19,9 +19,11 @@ describe("canal water", () => {
     expect(ocean.uniforms.uHasPlanar.value).toBe(0);
     expect(canal.fragmentShader).toContain("uPlanar");
     expect(canal.fragmentShader).toContain("uReflectMatrix");
-    expect(canal.fragmentShader).toContain("glitterAmt");
-    expect(canal.fragmentShader).toContain("wetLip");
-    expect(canal.fragmentShader).toContain("pow(1.0 - ndv, 2.0)");
+    // Ripple detail taps distort the planar lookup, and water fogs like the rest of the world.
+    expect(canal.uniforms.uDetail.value).toBeInstanceOf(THREE.Texture);
+    expect(canal.fragmentShader).toContain("slope * 0.055");
+    expect(canal.fragmentShader).toContain("uFogColor");
+    expect(canal.fragmentShader).toContain("sparkle");
   });
 
   it("keeps canal water darker than the old milky teal", () => {

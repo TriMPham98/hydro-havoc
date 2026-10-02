@@ -3,6 +3,7 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import type { Boat } from "../sim/Boat";
 import { queryCourse, type TrackWorld } from "../sim/Track";
@@ -16,8 +17,13 @@ import { ContactField } from "./Contact";
 import { Fx, type BoostKind } from "./Fx";
 import { createSkyDome } from "./SkyDome";
 import { createOceanMaterial } from "./WaterMaterial";
+import { PostGradeShader } from "./PostGrade";
 import { createTrackGroup } from "./TrackMesh";
 import { WakeField } from "./Wake";
+import { updateBoostLights } from "./BoostLights";
+import { updateStackFlames } from "./StackFlames";
+import { LightTrails } from "./LightTrails";
+import { TrackSpectacle, type Celebration } from "./TrackSpectacle";
 
 type Quality = "low" | "med" | "high";
 
@@ -112,6 +118,7 @@ export class GameRenderer {
   private hemi: THREE.HemisphereLight;
   private dir: THREE.DirectionalLight;
   private trackGroup: THREE.Group | null = null;
+  private spectacle: TrackSpectacle | null = null;
   private fogDay = new THREE.Color(0x8ab0c4);
   private fogDusk = new THREE.Color(0xc49a72);
   private cubeRT: THREE.WebGLCubeRenderTarget;
@@ -133,6 +140,7 @@ export class GameRenderer {
   private sunDir = new THREE.Vector3(-80, 32, 48).normalize();
   private shadowExtent = 48;
   private contacts: ContactField;
+  private trails = new LightTrails();
   private canalMat: THREE.ShaderMaterial | null = null;
   private readonly quality: Quality;
   private readonly planarLong: number;
@@ -155,6 +163,13 @@ export class GameRenderer {
   private hazeLowMat: THREE.ShaderMaterial;
   private hazeBoostMat: THREE.ShaderMaterial;
   private volumeCards: THREE.Mesh[] = [];
+  private grade: ShaderPass;
+  private beat = 0;
+  private boostFx = 0;
+  private superFx = 0;
+  private cubeFace = 0;
+  private fogScratch = new THREE.Color();
+  private readonly cavernFog = new THREE.Color(0x1c3040);
 
   constructor(canvas: HTMLCanvasElement) {
     this.quality = readQuality();
@@ -162,7 +177,9 @@ export class GameRenderer {
     // Option A: cube is hull env only (track stays hidden). Med: 32px / 16 frames. High: 64px / 6. Low: none.
     this.cubeInterval = this.quality === "high" ? 6 : 16;
     this.shadowExtent = this.quality === "high" ? 56 : 48;
-    this.dprCap = Math.min(window.devicePixelRatio || 1, 1.25);
+    // Crisp on retina when the GPU has headroom; adaptPixelRatio walks it down under load.
+    const dprMax = this.quality === "high" ? 2 : this.quality === "low" ? 1 : 1.5;
+    this.dprCap = Math.min(window.devicePixelRatio || 1, dprMax);
     this.dpr = this.dprCap;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(this.dpr);
@@ -207,9 +224,10 @@ export class GameRenderer {
     this.scene.add(ambient);
 
     this.oceanMat = createOceanMaterial();
-    const ocean = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400, 48, 48), this.oceanMat);
+    // Big enough that its edge never shows, even from the mesa or the title fly-over.
+    const ocean = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000, 64, 64), this.oceanMat);
     ocean.rotation.x = -Math.PI / 2;
-    ocean.position.y = -1.6;
+    ocean.position.set(450, -1.6, 520);
     ocean.name = "waterSurface";
     ocean.receiveShadow = true;
     this.scene.add(ocean);
@@ -232,6 +250,7 @@ export class GameRenderer {
     this.scene.add(this.wakes.group);
     this.contacts = new ContactField();
     this.scene.add(this.contacts.group);
+    this.scene.add(this.trails.group);
 
     this.planarRT = new THREE.WebGLRenderTarget(this.planarLong, Math.round((this.planarLong * 9) / 16 / 2) * 2, {
       type: THREE.HalfFloatType,
@@ -255,10 +274,13 @@ export class GameRenderer {
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.22, 0.4, 0.78);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.3, 0.55, 0.74);
     this.composer.addPass(this.bloom);
-    this.composer.addPass(new SMAAPass(Math.max(1, window.innerWidth), Math.max(1, window.innerHeight)));
     this.composer.addPass(new OutputPass());
+    this.composer.addPass(new SMAAPass(Math.max(1, window.innerWidth), Math.max(1, window.innerHeight)));
+    this.grade = new ShaderPass(PostGradeShader);
+    this.grade.uniforms.uAspect.value = window.innerWidth / Math.max(1, window.innerHeight);
+    this.composer.addPass(this.grade);
     this.boatsReady = preloadBoatMeshes(BOATS);
   }
 
@@ -292,6 +314,20 @@ export class GameRenderer {
     this.fx.sparks(x, y, z);
   }
 
+  /** Called when a firework shell bursts (world position), so audio can land the boom. */
+  onFireworkBurst?: (x: number, y: number, z: number) => void;
+  onFireworkLaunch?: (x: number, y: number, z: number) => void;
+
+  /** Fireworks + crowd eruption at the start/finish. */
+  celebrate(kind: Celebration, atT?: number): void {
+    this.spectacle?.celebrate(kind, atT);
+  }
+
+  /** 0..1 kick-drum pulse from the music, nudges bloom and the vignette. */
+  setBeat(pulse: number): void {
+    this.beat = pulse;
+  }
+
   hitPunch(amount = 1): void {
     this.punch = Math.max(this.punch, amount);
   }
@@ -309,6 +345,15 @@ export class GameRenderer {
       if (obj instanceof THREE.Mesh && obj.material === built.waterMat) this.waterMeshes.push(obj);
     });
     this.fx.rebuildPickups(track);
+    const prevShow = this.spectacle;
+    this.spectacle = new TrackSpectacle(track);
+    this.spectacle.onBurst = (x, y, z) => this.onFireworkBurst?.(x, y, z);
+    this.spectacle.onLaunch = (x, y, z) => this.onFireworkLaunch?.(x, y, z);
+    this.scene.add(this.spectacle.group);
+    if (prevShow) {
+      this.scene.remove(prevShow.group);
+      disposeTrackGpu(prevShow.group, []);
+    }
     if (prev) {
       this.scene.remove(prev);
       disposeTrackGpu(prev, [this.oceanMat]);
@@ -354,9 +399,31 @@ export class GameRenderer {
         time,
       });
       mesh.rotation.set(boat.pitch - (getJetRig(mesh)?.lift ?? 0), boat.yaw, boat.roll);
+      const lights = updateBoostLights(mesh, {
+        boostFuel: boat.boostFuel,
+        pendingBoost: boat.pendingBoost,
+        superRemaining: boat.superBoostRemaining,
+        pendingSuper: boat.pendingSuper,
+        boosting: hot,
+        sputter: boat.jetSputter,
+        dt,
+        time,
+      });
+      updateStackFlames(mesh, {
+        boosting: hot,
+        superOn: superOn || (hot && boat.superBoostRemaining > 0),
+        throttle: boat.throttle,
+        speed: boat.speed,
+        sputter: boat.jetSputter,
+        dt,
+        time,
+      });
+      if (lights.ignite) this.fx.boostRing(boat, superOn || boat.superBoostRemaining > 0 ? 0xffd23a : 0x7af0ff, superOn);
+      this.trails.sync(boat, hot, superOn || (hot && boat.superBoostRemaining > 0), this.camera.camera.position, dt);
       const heat = superOn ? 1 : hot ? 0.6 : boat.jetIgnite > 0 ? Math.min(1, 0.35 + boat.jetIgnite) : 0;
       applyHullHeat(mesh, heat);
     }
+    this.trails.prune(seen);
     for (const [id, mesh] of this.boats) {
       if (!seen.has(id)) {
         this.scene.remove(mesh);
@@ -384,6 +451,8 @@ export class GameRenderer {
     const boosting = firing || igniting;
     const superOn = !!player && player.superBoostRemaining > 0 && (firing || igniting);
     this.fx.update(track, boats, dt, time, boosting);
+    (this.trackGroup?.userData.tick as ((t: number) => void) | undefined)?.(time);
+    this.spectacle?.update(time, dt, camPos);
     this.syncBoats(boats, time, dt);
     this.contacts.sync(boats, time);
     if (player) {
@@ -395,9 +464,12 @@ export class GameRenderer {
       this.sky.position.copy(this.camera.camera.position);
       if (this.quality !== "low" && !(cam === "showcase" && this.cubeCaptured)) {
         this.cubeTick++;
-        if (!this.cubeCaptured || this.cubeTick % this.cubeInterval === 0) {
+        if (!this.cubeCaptured) {
           this.captureEnv(player.x, player.y + 8, player.z);
           this.cubeCaptured = true;
+        } else if (this.cubeTick % this.cubeInterval < 6) {
+          // One face per frame instead of a six-render spike every N frames.
+          this.captureEnvFace(player.x, player.y + 8, player.z);
         }
       }
       const q = queryCourse(track, player.x, player.y, player.z, player.courseT);
@@ -411,7 +483,19 @@ export class GameRenderer {
       this.renderer.toneMappingExposure += this.punch * 0.14;
       this.punch = Math.max(0, this.punch - dt * 4.2);
     }
-    this.bloom.strength = this.quality === "low" ? 0 : (superOn ? 0.38 : boosting ? 0.28 : 0.2) + this.punch * 0.35;
+    this.bloom.strength =
+      this.quality === "low" ? 0 : (superOn ? 0.4 : boosting ? 0.33 : 0.28) + this.punch * 0.3 + this.beat * 0.04;
+    this.boostFx += ((firing ? 1 : 0) - this.boostFx) * (1 - Math.exp(-(firing ? 7 : 3) * dt));
+    this.superFx += ((superOn ? 1 : 0) - this.superFx) * (1 - Math.exp(-6 * dt));
+    const gu = this.grade.uniforms;
+    gu.uTime.value = time;
+    gu.uBoost.value = cam === "chase" ? this.boostFx : 0;
+    gu.uSuper.value = cam === "chase" ? this.superFx : 0;
+    gu.uPunch.value = this.punch;
+    gu.uBeat.value = this.beat;
+    (gu.uTint.value as THREE.Color).setHex(superOn ? 0xffd84a : 0x7af0ff);
+    this.skyMat.uniforms.uTime.value = time;
+    for (const mat of this.waterMats) mat.uniforms.uBoost.value = this.boostFx;
     this.adaptPixelRatio(dt);
     this.renderer.info.reset();
     this.composer.render();
@@ -449,14 +533,15 @@ export class GameRenderer {
       this.dprSlow = Math.max(0, this.dprSlow - 1);
       this.dprFast = Math.max(0, this.dprFast - 1);
     }
+    // Ladder: cap → … → 1 → 0.85. One rung per sustained streak, so it never oscillates per frame.
+    const rungs = [this.dprCap, 1.75, 1.5, 1.25, 1, 0.85].filter((r, i, a) => r <= this.dprCap && a.indexOf(r) === i);
+    const at = rungs.findIndex((r) => Math.abs(r - this.dpr) < 0.01);
     let next = this.dpr;
     if (this.dprSlow > 28) {
-      if (this.dpr > 1.02) next = 1;
-      else if (this.dpr > 0.86) next = 0.85;
+      if (at >= 0 && at < rungs.length - 1) next = rungs[at + 1];
       this.dprSlow = 0;
-    } else if (this.dprFast > 50) {
-      if (this.dpr < 0.99) next = Math.min(this.dprCap, 1);
-      else if (this.dpr < this.dprCap - 0.01) next = this.dprCap;
+    } else if (this.dprFast > 90) {
+      if (at > 0) next = rungs[at - 1];
       this.dprFast = 0;
     }
     if (Math.abs(next - this.dpr) < 0.001) return;
@@ -470,7 +555,7 @@ export class GameRenderer {
       if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshPhysicalMaterial) {
         if (obj.material.envMap === env) return;
         obj.material.envMap = env;
-        obj.material.envMapIntensity = 1.15;
+        obj.material.envMapIntensity = 0.85;
         obj.material.needsUpdate = true;
       }
     });
@@ -478,6 +563,7 @@ export class GameRenderer {
 
   private hideForProbe(): { track: THREE.Group | null; trackVisible: boolean } {
     this.wakes.group.visible = false;
+    this.trails.group.visible = false;
     this.fx.particles.visible = false;
     this.contacts.group.visible = false;
     for (const card of this.volumeCards) card.visible = false;
@@ -485,13 +571,16 @@ export class GameRenderer {
     const track = this.trackGroup;
     const trackVisible = track ? track.visible : true;
     if (track) track.visible = false;
+    if (this.spectacle) this.spectacle.group.visible = false;
     return { track, trackVisible };
   }
 
   private restoreAfterProbe(track: THREE.Group | null, trackVisible: boolean): void {
     for (const m of this.waterMeshes) m.visible = true;
     if (track) track.visible = trackVisible;
+    if (this.spectacle) this.spectacle.group.visible = true;
     this.wakes.group.visible = true;
+    this.trails.group.visible = true;
     this.fx.particles.visible = true;
     this.contacts.group.visible = true;
     for (const card of this.volumeCards) card.visible = true;
@@ -500,7 +589,10 @@ export class GameRenderer {
   private captureEnv(x: number, y: number, z: number): void {
     this.cubeCam.position.set(x, y, z);
     const hid = this.hideForProbe();
+    const shadowAuto = this.renderer.shadowMap.autoUpdate;
+    this.renderer.shadowMap.autoUpdate = false;
     this.cubeCam.update(this.renderer, this.scene);
+    this.renderer.shadowMap.autoUpdate = shadowAuto;
     this.restoreAfterProbe(hid.track, hid.trackVisible);
     const env = this.cubeRT.texture;
     for (const mat of this.waterMats) {
@@ -509,24 +601,57 @@ export class GameRenderer {
     }
   }
 
+  /** Render one cube face; the probe position only moves at the start of a sweep. */
+  private captureEnvFace(x: number, y: number, z: number): void {
+    const face = this.cubeFace;
+    if (face === 0) {
+      this.cubeCam.position.set(x, y, z);
+      this.cubeCam.updateMatrixWorld();
+    }
+    const hid = this.hideForProbe();
+    const r = this.renderer;
+    const prevTarget = r.getRenderTarget();
+    const prevFace = r.getActiveCubeFace();
+    const prevMip = r.getActiveMipmapLevel();
+    const shadowAuto = r.shadowMap.autoUpdate;
+    r.shadowMap.autoUpdate = false;
+    const tex = this.cubeRT.texture;
+    const mips = tex.generateMipmaps;
+    tex.generateMipmaps = mips && face === 5;
+    r.setRenderTarget(this.cubeRT, face);
+    r.render(this.scene, this.cubeCam.children[face] as THREE.Camera);
+    tex.generateMipmaps = mips;
+    r.setRenderTarget(prevTarget, prevFace, prevMip);
+    r.shadowMap.autoUpdate = shadowAuto;
+    this.restoreAfterProbe(hid.track, hid.trackVisible);
+    this.cubeFace = (face + 1) % 6;
+  }
+
   private tintWorld(t: number, boosting = false, superOn = false): void {
     const cavern = t >= 0.52 && t < 0.78;
     const warmth = t >= 0.22 && t < 0.48 ? 0.45 : 0.18;
-    const fog = this.fogDay.clone().lerp(this.fogDusk, warmth);
-    if (cavern) fog.lerp(new THREE.Color(0x1c3040), 0.35);
-    this.scene.background = fog;
+    const fog = this.fogScratch.copy(this.fogDay).lerp(this.fogDusk, warmth);
+    if (cavern) fog.lerp(this.cavernFog, 0.35);
+    if (this.scene.background instanceof THREE.Color) this.scene.background.copy(fog);
+    else this.scene.background = fog.clone();
     if (this.scene.fog instanceof THREE.Fog) {
       this.scene.fog.color.copy(fog);
       this.scene.fog.near = cavern ? 70 : 120;
       this.scene.fog.far = cavern ? 520 : 820;
+    }
+    for (const mat of this.waterMats) {
+      mat.uniforms.uFogColor.value.copy(fog);
+      mat.uniforms.uFogNear.value = cavern ? 90 : 160;
+      mat.uniforms.uFogFar.value = cavern ? 560 : 900;
+      mat.uniforms.uZenith.value.setHex(cavern ? 0x203450 : 0x284c7c);
     }
     this.hemi.intensity = cavern ? 0.92 : 1.12;
     this.dir.intensity = cavern ? 1.15 : 1.85;
     this.dir.color.setHex(0xffd4a0);
     this.renderer.toneMappingExposure = cavern ? 1.05 : 1.16;
     this.skyMat.uniforms.uSunDir.value.copy(this.sunDir);
-    this.skyMat.uniforms.uHorizon.value.setHex(cavern ? 0x8aa0b0 : 0xe8b888);
-    this.skyMat.uniforms.uZenith.value.setHex(cavern ? 0x243850 : 0x3a6a9a);
+    this.skyMat.uniforms.uHorizon.value.setHex(cavern ? 0x8aa0b0 : 0xf2a070);
+    this.skyMat.uniforms.uZenith.value.setHex(cavern ? 0x203450 : 0x284c7c);
     for (const mat of this.waterMats) {
       if (mat.uniforms.uSunDir) mat.uniforms.uSunDir.value.copy(this.sunDir);
       if (mat.uniforms.uSky) mat.uniforms.uSky.value.setHex(cavern ? 0x8aa8b8 : 0xead2a8);
@@ -609,7 +734,7 @@ export class GameRenderer {
     proj.elements[10] = this.clipVec.z + 1 - 0.002;
     proj.elements[14] = this.clipVec.w;
 
-    const hide = [this.wakes.group, this.fx.particles, this.contacts.group, ...this.volumeCards, ...this.waterMeshes];
+    const hide = [this.wakes.group, this.trails.group, this.fx.particles, this.contacts.group, ...this.volumeCards, ...this.waterMeshes];
     const prevVis = hide.map((o) => o.visible);
     const prevTarget = this.renderer.getRenderTarget();
     const prevTone = this.renderer.toneMapping;
@@ -647,6 +772,7 @@ export class GameRenderer {
     this.renderer.setSize(w, h);
     this.composer.setPixelRatio(this.dpr);
     this.composer.setSize(w, h);
+    this.grade.uniforms.uAspect.value = w / Math.max(1, h);
     this.camera.resize(w, h);
     this.sizePlanar(w, h);
   }
